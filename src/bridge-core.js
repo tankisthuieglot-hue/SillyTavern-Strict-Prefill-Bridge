@@ -2,6 +2,7 @@ export const DEFAULT_SETTINGS = Object.freeze({
     enabled: true,
     prefix: '<think>',
     minimumContentCharacters: 0,
+    prefillFirstCot: false,
 });
 
 export const HTML_QUOTE_TOKEN = '__SP_DQ__';

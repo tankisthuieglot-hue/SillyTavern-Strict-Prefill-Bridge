@@ -40,6 +40,14 @@
                 </small>
             </div>
 
+            <label class="checkbox_label strict-prefill-toggle" for="strict-prefill-first-cot">
+                <input id="strict-prefill-first-cot" type="checkbox" class="checkbox">
+                <span>
+                    <strong>Prefill-first CoT (экспериментально)</strong>
+                    <small>Для прямых Google AI и Vertex просит Gemini вывести строгий префилл до видимого CoT. Уровень и показ нативного thinking не меняются; результат не гарантирован.</small>
+                </span>
+            </label>
+
             <div class="strict-prefill-note">
                 <i class="fa-solid fa-brackets-curly" aria-hidden="true"></i>
                 <span>Префилл закрепляется через Structured Outputs / JSON Schema. Скрытые user-сообщения не добавляются.</span>

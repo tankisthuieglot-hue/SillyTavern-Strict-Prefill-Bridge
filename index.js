@@ -32,10 +32,11 @@ function updatePreview(enabledControl, prefixControl, previewControl, statusCont
     }
 }
 
-export function updateSettingsFromControls(settings, enabledControl, prefixControl, minimumContentControl, saveSettings) {
+export function updateSettingsFromControls(settings, enabledControl, prefixControl, minimumContentControl, prefillFirstCotControl, saveSettings) {
     settings.enabled = enabledControl.checked;
     settings.prefix = prefixControl.value;
     settings.minimumContentCharacters = normalizeMinimumContentCharacters(minimumContentControl.value);
+    settings.prefillFirstCot = prefillFirstCotControl.checked;
     saveSettings();
 }
 
@@ -56,9 +57,10 @@ export async function initializeSettingsUi() {
     const enabledControl = document.getElementById('strict-prefill-enabled');
     const prefixControl = document.getElementById('strict-prefill-prefix');
     const minimumContentControl = document.getElementById('strict-prefill-minimum-content');
+    const prefillFirstCotControl = document.getElementById('strict-prefill-first-cot');
     const previewControl = document.getElementById('strict-prefill-preview');
     const statusControl = document.getElementById('strict-prefill-status');
-    if (!enabledControl || !prefixControl || !minimumContentControl || !previewControl || !statusControl) {
+    if (!enabledControl || !prefixControl || !minimumContentControl || !prefillFirstCotControl || !previewControl || !statusControl) {
         return;
     }
 
@@ -68,16 +70,18 @@ export async function initializeSettingsUi() {
         ? settings.prefix
         : String(settings.prefix ?? '');
     minimumContentControl.value = String(normalizeMinimumContentCharacters(settings.minimumContentCharacters));
+    prefillFirstCotControl.checked = settings.prefillFirstCot === true;
     updatePreview(enabledControl, prefixControl, previewControl, statusControl);
 
     const persist = () => {
-        updateSettingsFromControls(settings, enabledControl, prefixControl, minimumContentControl, context.saveSettingsDebounced);
+        updateSettingsFromControls(settings, enabledControl, prefixControl, minimumContentControl, prefillFirstCotControl, context.saveSettingsDebounced);
         updatePreview(enabledControl, prefixControl, previewControl, statusControl);
     };
 
     enabledControl.addEventListener('change', persist);
     prefixControl.addEventListener('input', persist);
     minimumContentControl.addEventListener('input', persist);
+    prefillFirstCotControl.addEventListener('change', persist);
 }
 
 const controller = createBridgeController({

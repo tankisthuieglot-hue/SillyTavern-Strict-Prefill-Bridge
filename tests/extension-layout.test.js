@@ -45,6 +45,7 @@ test('settings explain the structured-output mechanism and expose an exact-prefi
 
     assert.match(settingsSource, /id="strict-prefill-settings"/);
     assert.match(settingsSource, /id="strict-prefill-enabled"[^>]*type="checkbox"/);
+    assert.match(settingsSource, /id="strict-prefill-first-cot"[^>]*type="checkbox"/);
     assert.match(settingsSource, /<label[^>]*for="strict-prefill-prefix"/);
     assert.match(settingsSource, /id="strict-prefill-prefix"[^>]*rows="5"[^>]*spellcheck="false"/);
     assert.match(settingsSource, /id="strict-prefill-minimum-content"[^>]*type="number"/);
@@ -81,6 +82,7 @@ test('browser entrypoint injects Gemini schema through the existing SillyTavern 
     const enabledControl = makeControl();
     const prefixControl = makeControl();
     const minimumContentControl = makeControl();
+    const prefillFirstCotControl = makeControl();
     const previewControl = makeControl();
     const statusControl = makeControl();
     const settingsRoot = {};
@@ -95,6 +97,7 @@ test('browser entrypoint injects Gemini schema through the existing SillyTavern 
         ['strict-prefill-enabled', enabledControl],
         ['strict-prefill-prefix', prefixControl],
         ['strict-prefill-minimum-content', minimumContentControl],
+        ['strict-prefill-first-cot', prefillFirstCotControl],
         ['strict-prefill-preview', previewControl],
         ['strict-prefill-status', statusControl],
     ]);
@@ -160,12 +163,14 @@ test('browser entrypoint injects Gemini schema through the existing SillyTavern 
             enabled: true,
             prefix: '<think>',
             minimumContentCharacters: 0,
+            prefillFirstCot: false,
         });
 
         await handlers.get(eventTypes.APP_READY)[0]();
         assert.equal(enabledControl.checked, true);
         assert.equal(prefixControl.value, '<think>');
         assert.equal(minimumContentControl.value, '0');
+        assert.equal(prefillFirstCotControl.checked, false);
 
         enabledControl.checked = false;
         enabledControl.dispatch('change');
@@ -173,11 +178,14 @@ test('browser entrypoint injects Gemini schema through the existing SillyTavern 
         prefixControl.dispatch('input');
         minimumContentControl.value = '16000';
         minimumContentControl.dispatch('input');
+        prefillFirstCotControl.checked = true;
+        prefillFirstCotControl.dispatch('change');
 
         assert.equal(context.extensionSettings.strict_prefill_bridge.enabled, false);
         assert.equal(context.extensionSettings.strict_prefill_bridge.prefix, '  <thinking>\nплан: 🧪\n');
         assert.equal(context.extensionSettings.strict_prefill_bridge.minimumContentCharacters, 16000);
-        assert.equal(savedSettings, 3);
+        assert.equal(context.extensionSettings.strict_prefill_bridge.prefillFirstCot, true);
+        assert.equal(savedSettings, 4);
         assert.equal(previewControl.textContent, '  <thinking>\nплан: 🧪\n');
     } finally {
         for (const [name, original] of originalGlobals) {
