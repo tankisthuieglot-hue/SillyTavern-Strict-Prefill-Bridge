@@ -28,7 +28,13 @@ Structured Outputs не отменяет блокировку запроса с�
 
 ## Установка
 
-Скопируйте рабочие файлы расширения в:
+В SillyTavern откройте **Extensions → Install extension** и вставьте адрес:
+
+```text
+https://github.com/tankisthuieglot-hue/SillyTavern-Strict-Prefill-Bridge
+```
+
+Для ручной установки скопируйте рабочие файлы расширения в:
 
 ```text
 SillyTavern/data/default-user/extensions/strict-prefill-bridge
