@@ -81,6 +81,7 @@ export function createBridgeController({ getContext, getSettings, notifyWarning 
             source: payload.chat_completion_source,
             model: payload.model,
             prefix,
+            minimumContentCharacters: settings?.minimumContentCharacters,
         });
         delete payload.assistant_prefill;
 

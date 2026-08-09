@@ -33,7 +33,7 @@ test('manifest installs as an event-driven SillyTavern 1.18 extension', async ()
     const manifest = JSON.parse(await readProjectFile('manifest.json'));
 
     assert.equal(manifest.display_name, 'Strict Prefill Bridge');
-    assert.equal(manifest.version, '0.3.0');
+    assert.equal(manifest.version, '0.4.0');
     assert.equal(manifest.js, 'index.js');
     assert.equal(manifest.css, 'style.css');
     assert.equal(manifest.generate_interceptor, undefined);
@@ -47,6 +47,7 @@ test('settings explain the structured-output mechanism and expose an exact-prefi
     assert.match(settingsSource, /id="strict-prefill-enabled"[^>]*type="checkbox"/);
     assert.match(settingsSource, /<label[^>]*for="strict-prefill-prefix"/);
     assert.match(settingsSource, /id="strict-prefill-prefix"[^>]*rows="5"[^>]*spellcheck="false"/);
+    assert.match(settingsSource, /id="strict-prefill-minimum-content"[^>]*type="number"/);
     assert.match(settingsSource, /Structured Outputs|JSON Schema/);
     assert.match(settingsSource, /Continue/);
 });
@@ -79,6 +80,7 @@ test('browser entrypoint injects Gemini schema through the existing SillyTavern 
 
     const enabledControl = makeControl();
     const prefixControl = makeControl();
+    const minimumContentControl = makeControl();
     const previewControl = makeControl();
     const statusControl = makeControl();
     const settingsRoot = {};
@@ -92,6 +94,7 @@ test('browser entrypoint injects Gemini schema through the existing SillyTavern 
         ['strict-prefill-settings', settingsRoot],
         ['strict-prefill-enabled', enabledControl],
         ['strict-prefill-prefix', prefixControl],
+        ['strict-prefill-minimum-content', minimumContentControl],
         ['strict-prefill-preview', previewControl],
         ['strict-prefill-status', statusControl],
     ]);
@@ -156,20 +159,25 @@ test('browser entrypoint injects Gemini schema through the existing SillyTavern 
         assert.deepEqual(context.extensionSettings.strict_prefill_bridge, {
             enabled: true,
             prefix: '<think>',
+            minimumContentCharacters: 0,
         });
 
         await handlers.get(eventTypes.APP_READY)[0]();
         assert.equal(enabledControl.checked, true);
         assert.equal(prefixControl.value, '<think>');
+        assert.equal(minimumContentControl.value, '0');
 
         enabledControl.checked = false;
         enabledControl.dispatch('change');
         prefixControl.value = '  <thinking>\nплан: 🧪\n';
         prefixControl.dispatch('input');
+        minimumContentControl.value = '16000';
+        minimumContentControl.dispatch('input');
 
         assert.equal(context.extensionSettings.strict_prefill_bridge.enabled, false);
         assert.equal(context.extensionSettings.strict_prefill_bridge.prefix, '  <thinking>\nплан: 🧪\n');
-        assert.equal(savedSettings, 2);
+        assert.equal(context.extensionSettings.strict_prefill_bridge.minimumContentCharacters, 16000);
+        assert.equal(savedSettings, 3);
         assert.equal(previewControl.textContent, '  <thinking>\nплан: 🧪\n');
     } finally {
         for (const [name, original] of originalGlobals) {

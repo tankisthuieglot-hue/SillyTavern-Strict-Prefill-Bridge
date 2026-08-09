@@ -55,9 +55,10 @@ test('OpenAI-style providers force the prefix in the generated response string',
 });
 
 test('provider routing uses Gemini enum mode and rejects sources that only fake schemas', () => {
-    assert.equal(getProviderMode('makersuite', 'gemini-3.6-flash'), 'gemini-enum');
-    assert.equal(getProviderMode('vertexai', 'gemini-3.6-flash'), 'gemini-enum');
-    assert.equal(getProviderMode('openrouter', 'google/gemini-3.6-flash'), 'gemini-enum');
+    assert.equal(getProviderMode('makersuite', 'gemini-3.6-flash'), 'split-enum');
+    assert.equal(getProviderMode('vertexai', 'gemini-3.6-flash'), 'split-enum');
+    assert.equal(getProviderMode('openrouter', 'google/gemini-3.6-flash'), 'split-enum');
+    assert.equal(getProviderMode('nanogpt', 'anthropic/claude-opus-4.6'), 'split-enum');
     assert.equal(getProviderMode('openrouter', 'anthropic/claude-opus-4.6'), 'regex');
     assert.equal(getProviderMode('openai', 'gpt-5.4'), 'regex');
     assert.equal(getProviderMode('claude', 'claude-opus-4.6'), null);
@@ -65,7 +66,7 @@ test('provider routing uses Gemini enum mode and rejects sources that only fake 
 });
 
 test('streaming Gemini JSON is unwrapped only after the exact enum prefix is present', () => {
-    const state = { mode: 'gemini-enum', expectedPrefix: '<think>', baseText: '', overlap: '' };
+    const state = { mode: 'split-enum', expectedPrefix: '<think>', baseText: '', overlap: '' };
 
     assert.equal(unwrapStructuredOutput('{"prefix":"<thi', state), null);
     assert.equal(unwrapStructuredOutput('{"prefix":"<think>","content":"plan\\nstep', state), '<think>plan\nstep');
@@ -83,7 +84,7 @@ test('streaming regex JSON never exposes a response that diverges from the prefi
 
 test('Continue appends a newly prefixed response to the existing message', () => {
     const baseText = 'The lantern went dark.';
-    const state = { mode: 'gemini-enum', expectedPrefix: '<think>', baseText, generationType: 'continue' };
+    const state = { mode: 'split-enum', expectedPrefix: '<think>', baseText, generationType: 'continue' };
     const raw = '{"prefix":"<think>","content":" Then footsteps followed."}';
     assert.equal(
         unwrapStructuredOutput(raw, state),

@@ -31,6 +31,7 @@ test('Gemini normal generation receives enum schema without changing prompt or t
         model: 'gemini-3.6-flash',
         reasoning_effort: 'low',
         thinkingLevel: 'low',
+        max_tokens: 30000,
         temperature: 1,
         messages,
     };
@@ -40,8 +41,47 @@ test('Gemini normal generation receives enum schema without changing prompt or t
     assert.deepEqual(payload.messages, [{ role: 'user', content: 'hello' }]);
     assert.equal(payload.reasoning_effort, 'low');
     assert.equal(payload.thinkingLevel, 'low');
+    assert.equal(payload.max_tokens, 30000);
     assert.deepEqual(payload.json_schema.value.properties.prefix.enum, ['<think>']);
-    assert.equal(controller.getSnapshot().mode, 'gemini-enum');
+    assert.equal(controller.getSnapshot().mode, 'split-enum');
+});
+
+test('Gemini can require a configurable minimum content length after the prefix', () => {
+    const { controller } = makeHarness({
+        settings: {
+            enabled: true,
+            prefix: '<think>',
+            minimumContentCharacters: 16000,
+        },
+    });
+    const payload = {
+        type: 'normal',
+        chat_completion_source: 'vertexai',
+        model: 'gemini-3.6-flash',
+        max_tokens: 30000,
+        messages: [{ role: 'user', content: 'generate the tracker' }],
+    };
+
+    assert.equal(controller.onSettingsReady(payload), true);
+    assert.equal(payload.json_schema.value.properties.content.minLength, 16000);
+    assert.equal(payload.max_tokens, 30000);
+});
+
+test('NanoGPT uses an enum prefix schema instead of an unsupported regex pattern', () => {
+    const { controller } = makeHarness();
+    const payload = {
+        type: 'normal',
+        chat_completion_source: 'nanogpt',
+        model: 'anthropic/claude-opus-4.6',
+        max_tokens: 8000,
+        messages: [{ role: 'user', content: 'hello' }],
+    };
+
+    assert.equal(controller.onSettingsReady(payload), true);
+    assert.deepEqual(payload.json_schema.value.properties?.prefix?.enum, ['<think>']);
+    assert.equal(payload.json_schema.value.properties?.response, undefined);
+    assert.equal(payload.max_tokens, 8000);
+    assert.equal(controller.getSnapshot().mode, 'split-enum');
 });
 
 test('OpenRouter swipe uses regex schema and does not append a hidden user message', () => {

@@ -1,6 +1,7 @@
 export const DEFAULT_SETTINGS = Object.freeze({
     enabled: true,
     prefix: '<think>',
+    minimumContentCharacters: 0,
 });
 
 const ELIGIBLE_TYPES = new Set(['normal', 'regenerate', 'swipe', 'continue']);
@@ -20,6 +21,11 @@ export function normalizePrefix(value) {
     return typeof value === 'string' ? value : String(value ?? '');
 }
 
+export function normalizeMinimumContentCharacters(value) {
+    const parsed = Number.parseInt(value, 10);
+    return Number.isFinite(parsed) ? Math.max(0, Math.min(200000, parsed)) : 0;
+}
+
 export function isEligibleGenerationType(type) {
     return ELIGIBLE_TYPES.has(String(type ?? '').toLowerCase());
 }
@@ -29,11 +35,15 @@ export function getProviderMode(source, model) {
     const normalizedModel = String(model ?? '').toLowerCase();
 
     if (GOOGLE_SOURCES.has(normalizedSource)) {
-        return 'gemini-enum';
+        return 'split-enum';
     }
 
     if (normalizedSource === 'openrouter' && /(?:^|\/)google\/gemini/.test(normalizedModel)) {
-        return 'gemini-enum';
+        return 'split-enum';
+    }
+
+    if (normalizedSource === 'nanogpt') {
+        return 'split-enum';
     }
 
     if (INCOMPATIBLE_SOURCES.has(normalizedSource)) {
@@ -69,7 +79,16 @@ function escapeRegexLiteral(value) {
     return escaped;
 }
 
-function buildGeminiEnumSchema(prefix, includePropertyOrdering) {
+function buildGeminiEnumSchema(prefix, includePropertyOrdering, minimumContentCharacters) {
+    const content = {
+        type: 'string',
+        description: 'Continue the response immediately after the required prefix.',
+    };
+    const minimum = normalizeMinimumContentCharacters(minimumContentCharacters);
+    if (includePropertyOrdering && minimum > 0) {
+        content.minLength = minimum;
+    }
+
     const value = {
         type: 'object',
         properties: {
@@ -77,10 +96,7 @@ function buildGeminiEnumSchema(prefix, includePropertyOrdering) {
                 type: 'string',
                 enum: [prefix],
             },
-            content: {
-                type: 'string',
-                description: 'Continue the response immediately after the required prefix.',
-            },
+            content,
         },
         required: ['prefix', 'content'],
         additionalProperties: false,
@@ -117,7 +133,7 @@ function buildRegexSchema(prefix) {
     };
 }
 
-export function buildStructuredSchema({ source, model, prefix }) {
+export function buildStructuredSchema({ source, model, prefix, minimumContentCharacters = 0 }) {
     const exactPrefix = normalizePrefix(prefix);
     const mode = getProviderMode(source, model);
 
@@ -132,8 +148,12 @@ export function buildStructuredSchema({ source, model, prefix }) {
         name: 'strict_prefill_response',
         description: 'A response with an exact required prefix followed by the continuation.',
         strict: true,
-        value: mode === 'gemini-enum'
-            ? buildGeminiEnumSchema(exactPrefix, GOOGLE_SOURCES.has(String(source ?? '').toLowerCase()))
+        value: mode === 'split-enum'
+            ? buildGeminiEnumSchema(
+                exactPrefix,
+                GOOGLE_SOURCES.has(String(source ?? '').toLowerCase()),
+                minimumContentCharacters,
+            )
             : buildRegexSchema(exactPrefix),
     };
 }
@@ -263,7 +283,7 @@ export function unwrapStructuredOutput(rawText, state) {
         return null;
     }
 
-    const decoded = state?.mode === 'gemini-enum'
+    const decoded = state?.mode === 'split-enum'
         ? unwrapGeminiEnum(rawText, expectedPrefix)
         : state?.mode === 'regex'
             ? unwrapRegex(rawText, expectedPrefix)
