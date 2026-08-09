@@ -3,6 +3,7 @@ import {
     getProviderMode,
     isEligibleGenerationType,
     normalizePrefix,
+    protectGoogleHtmlTrackerQuotes,
     unwrapStructuredOutput,
 } from './bridge-core.js';
 
@@ -15,6 +16,7 @@ function idleState() {
         latestRaw: '',
         generationType: '',
         trackedSwipeId: -1,
+        htmlQuoteEncoding: false,
     };
 }
 
@@ -77,6 +79,11 @@ export function createBridgeController({ getContext, getSettings, notifyWarning 
             trackedSwipeId = Number.isInteger(assistant.message.swipe_id) ? assistant.message.swipe_id : -1;
         }
 
+        const htmlQuoteEncoding = protectGoogleHtmlTrackerQuotes(
+            payload.messages,
+            payload.chat_completion_source,
+        );
+
         payload.json_schema = buildStructuredSchema({
             source: payload.chat_completion_source,
             model: payload.model,
@@ -93,6 +100,7 @@ export function createBridgeController({ getContext, getSettings, notifyWarning 
             latestRaw: '',
             generationType,
             trackedSwipeId,
+            htmlQuoteEncoding,
         };
         return true;
     }

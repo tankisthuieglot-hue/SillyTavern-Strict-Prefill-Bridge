@@ -67,6 +67,50 @@ test('Gemini can require a configurable minimum content length after the prefix'
     assert.equal(payload.max_tokens, 30000);
 });
 
+test('Vertex protects HTML tracker quotes on the wire and restores them in the decoded reply', () => {
+    const { controller } = makeHarness();
+    const messages = [{
+        role: 'system',
+        content: '<info><span style="font-family: \'Courier New\'; color:#a6b1e1">clock</span></info> Say "hello".',
+    }];
+    const payload = {
+        type: 'normal',
+        chat_completion_source: 'vertexai',
+        model: 'gemini-3.6-flash',
+        messages,
+    };
+
+    assert.equal(controller.onSettingsReady(payload), true);
+    assert.equal(
+        payload.messages[0].content,
+        '<info><span style=__SP_DQ__font-family: \'Courier New\'; color:#a6b1e1__SP_DQ__>clock</span></info> Say "hello".',
+    );
+    assert.match(payload.json_schema.value.properties.content.description, /__SP_DQ__/);
+    assert.equal(
+        controller.onStream('{"prefix":"<think>","content":"<info><span style=__SP_DQ__color:#a6b1e1__SP_DQ__>clock</span></info>"}'),
+        '<think><info><span style="color:#a6b1e1">clock</span></info>',
+    );
+});
+
+test('Vertex protects quotes throughout an info tracker without changing surrounding dialogue', () => {
+    const { controller } = makeHarness();
+    const payload = {
+        type: 'normal',
+        chat_completion_source: 'vertexai',
+        model: 'gemini-3.6-flash',
+        messages: [{
+            role: 'system',
+            content: '<info><style>.label{font-family:"Arial"}</style><div title="status">"ready"</div></info> Dialogue "unchanged".',
+        }],
+    };
+
+    assert.equal(controller.onSettingsReady(payload), true);
+    assert.equal(
+        payload.messages[0].content,
+        '<info><style>.label{font-family:__SP_DQ__Arial__SP_DQ__}</style><div title=__SP_DQ__status__SP_DQ__>__SP_DQ__ready__SP_DQ__</div></info> Dialogue "unchanged".',
+    );
+});
+
 test('NanoGPT uses an enum prefix schema instead of an unsupported regex pattern', () => {
     const { controller } = makeHarness();
     const payload = {

@@ -31,7 +31,7 @@ test('Google AI and Vertex force the exact prefix with an enum before content', 
                     },
                     content: {
                         type: 'string',
-                        description: 'Continue the response immediately after the required prefix.',
+                        description: 'Continue the response immediately after the required prefix. Inside every <info> HTML tracker, output __SP_DQ__ instead of each double-quote character and preserve existing __SP_DQ__ tokens exactly. Never output a literal double quote inside an <info> tracker.',
                     },
                 },
                 required: ['prefix', 'content'],

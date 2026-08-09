@@ -33,7 +33,7 @@ test('manifest installs as an event-driven SillyTavern 1.18 extension', async ()
     const manifest = JSON.parse(await readProjectFile('manifest.json'));
 
     assert.equal(manifest.display_name, 'Strict Prefill Bridge');
-    assert.equal(manifest.version, '0.4.1');
+    assert.equal(manifest.version, '0.4.2');
     assert.equal(manifest.js, 'index.js');
     assert.equal(manifest.css, 'style.css');
     assert.equal(manifest.generate_interceptor, undefined);

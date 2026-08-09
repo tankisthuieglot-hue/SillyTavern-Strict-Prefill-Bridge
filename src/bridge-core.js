@@ -4,6 +4,8 @@ export const DEFAULT_SETTINGS = Object.freeze({
     minimumContentCharacters: 0,
 });
 
+export const HTML_QUOTE_TOKEN = '__SP_DQ__';
+
 const ELIGIBLE_TYPES = new Set(['normal', 'regenerate', 'swipe', 'continue']);
 const GOOGLE_SOURCES = new Set(['makersuite', 'vertexai']);
 const INCOMPATIBLE_SOURCES = new Set([
@@ -24,6 +26,75 @@ export function normalizePrefix(value) {
 export function normalizeMinimumContentCharacters(value) {
     const parsed = Number.parseInt(value, 10);
     return Number.isFinite(parsed) ? Math.max(0, Math.min(200000, parsed)) : 0;
+}
+
+function encodeHtmlTrackerQuotes(value) {
+    const input = String(value ?? '').replace(
+        /<info\b[\s\S]*?<\/info\s*>/gi,
+        block => block.replaceAll('"', HTML_QUOTE_TOKEN),
+    );
+    let output = '';
+    let insideTag = false;
+    let insideDoubleQuotedAttribute = false;
+    let insideSingleQuotedAttribute = false;
+
+    for (let index = 0; index < input.length; index += 1) {
+        const character = input[index];
+
+        if (!insideTag) {
+            if (character === '<' && /[A-Za-z/!?]/.test(input[index + 1] ?? '')) {
+                insideTag = true;
+            }
+            output += character;
+            continue;
+        }
+
+        if (character === '"' && !insideSingleQuotedAttribute) {
+            insideDoubleQuotedAttribute = !insideDoubleQuotedAttribute;
+            output += HTML_QUOTE_TOKEN;
+            continue;
+        }
+
+        if (character === "'" && !insideDoubleQuotedAttribute) {
+            insideSingleQuotedAttribute = !insideSingleQuotedAttribute;
+        } else if (character === '>' && !insideDoubleQuotedAttribute && !insideSingleQuotedAttribute) {
+            insideTag = false;
+        }
+
+        output += character;
+    }
+
+    return output;
+}
+
+export function protectGoogleHtmlTrackerQuotes(messages, source) {
+    if (!GOOGLE_SOURCES.has(String(source ?? '').toLowerCase()) || !Array.isArray(messages)) {
+        return false;
+    }
+
+    for (const message of messages) {
+        if (!message || typeof message !== 'object') {
+            continue;
+        }
+
+        if (typeof message.content === 'string') {
+            message.content = encodeHtmlTrackerQuotes(message.content);
+            continue;
+        }
+
+        if (Array.isArray(message.content)) {
+            for (let index = 0; index < message.content.length; index += 1) {
+                const part = message.content[index];
+                if (typeof part === 'string') {
+                    message.content[index] = encodeHtmlTrackerQuotes(part);
+                } else if (part && typeof part.text === 'string') {
+                    part.text = encodeHtmlTrackerQuotes(part.text);
+                }
+            }
+        }
+    }
+
+    return true;
 }
 
 export function isEligibleGenerationType(type) {
@@ -82,7 +153,9 @@ function escapeRegexLiteral(value) {
 function buildGeminiEnumSchema(prefix, includePropertyOrdering, minimumContentCharacters) {
     const content = {
         type: 'string',
-        description: 'Continue the response immediately after the required prefix.',
+        description: includePropertyOrdering
+            ? `Continue the response immediately after the required prefix. Inside every <info> HTML tracker, output ${HTML_QUOTE_TOKEN} instead of each double-quote character and preserve existing ${HTML_QUOTE_TOKEN} tokens exactly. Never output a literal double quote inside an <info> tracker.`
+            : 'Continue the response immediately after the required prefix.',
     };
     const minimum = normalizeMinimumContentCharacters(minimumContentCharacters);
     if (includePropertyOrdering && minimum > 0) {
@@ -295,11 +368,15 @@ export function unwrapStructuredOutput(rawText, state) {
         return null;
     }
 
-    const decoded = state?.mode === 'split-enum'
+    let decoded = state?.mode === 'split-enum'
         ? unwrapGeminiEnum(rawText, expectedPrefix)
         : state?.mode === 'regex'
             ? unwrapRegex(rawText, expectedPrefix)
             : null;
+
+    if (typeof decoded === 'string' && state?.htmlQuoteEncoding === true) {
+        decoded = decoded.replaceAll(HTML_QUOTE_TOKEN, '"');
+    }
 
     return typeof decoded === 'string' ? appendToContinuedMessage(decoded, state) : null;
 }
