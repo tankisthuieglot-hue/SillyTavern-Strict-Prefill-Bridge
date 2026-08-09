@@ -74,6 +74,16 @@ test('streaming Gemini JSON is unwrapped only after the exact enum prefix is pre
     assert.equal(unwrapStructuredOutput('{"prefix":"<think>","content":"done"}', state), '<think>done');
 });
 
+test('Gemini HTML survives unescaped quotes inside a malformed streamed JSON string', () => {
+    const state = { mode: 'split-enum', expectedPrefix: '<think>', baseText: '', generationType: 'normal' };
+    const raw = '{"prefix":"<think>","content":"<info><span style="color:#a6b1e1">clock</span> | <span style="color:#fff">next</span>"}';
+
+    assert.equal(
+        unwrapStructuredOutput(raw, state),
+        '<think><info><span style="color:#a6b1e1">clock</span> | <span style="color:#fff">next</span>',
+    );
+});
+
 test('streaming regex JSON never exposes a response that diverges from the prefix', () => {
     const state = { mode: 'regex', expectedPrefix: '<think>', baseText: '', overlap: '' };
 

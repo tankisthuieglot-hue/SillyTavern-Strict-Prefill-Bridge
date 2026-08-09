@@ -158,7 +158,7 @@ export function buildStructuredSchema({ source, model, prefix, minimumContentCha
     };
 }
 
-function extractJsonStringField(rawText, fieldName) {
+function extractJsonStringField(rawText, fieldName, { tolerateUnescapedQuotes = false } = {}) {
     const raw = String(rawText ?? '');
     const safeField = String(fieldName ?? '').replace(/[^a-zA-Z0-9_]/g, '');
     const match = new RegExp(`"${safeField}"\\s*:\\s*"`, 'm').exec(raw);
@@ -213,6 +213,18 @@ function extractJsonStringField(rawText, fieldName) {
         }
 
         if (character === '"') {
+            if (tolerateUnescapedQuotes) {
+                let nextIndex = index + 1;
+                while (nextIndex < raw.length && /\s/.test(raw[nextIndex])) {
+                    nextIndex += 1;
+                }
+
+                const nextCharacter = raw[nextIndex] ?? '';
+                if (nextCharacter && nextCharacter !== '}') {
+                    value += '"';
+                    continue;
+                }
+            }
             return { value, complete: true };
         }
 
@@ -256,7 +268,7 @@ function unwrapGeminiEnum(rawText, expectedPrefix) {
         return null;
     }
 
-    const content = extractJsonStringField(rawText, 'content');
+    const content = extractJsonStringField(rawText, 'content', { tolerateUnescapedQuotes: true });
     return expectedPrefix + (content?.value ?? '');
 }
 
@@ -264,7 +276,7 @@ function unwrapRegex(rawText, expectedPrefix) {
     const parsed = parseCompleteObject(rawText);
     const extractedValue = parsed && typeof parsed.response === 'string'
         ? parsed.response
-        : extractJsonStringField(rawText, 'response')?.value;
+        : extractJsonStringField(rawText, 'response', { tolerateUnescapedQuotes: true })?.value;
 
     if (typeof extractedValue !== 'string') {
         return null;
