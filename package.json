@@ -1,0 +1,10 @@
+{
+  "name": "sillytavern-strict-prefill-bridge",
+  "version": "0.3.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node --test tests/*.test.js",
+    "check": "node --test tests/*.test.js && node --check index.js && node --check src/bridge-core.js && node --check src/bridge-controller.js"
+  }
+}

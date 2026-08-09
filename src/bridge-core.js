@@ -1,0 +1,273 @@
+export const DEFAULT_SETTINGS = Object.freeze({
+    enabled: true,
+    prefix: '<think>',
+});
+
+const ELIGIBLE_TYPES = new Set(['normal', 'regenerate', 'swipe', 'continue']);
+const GOOGLE_SOURCES = new Set(['makersuite', 'vertexai']);
+const INCOMPATIBLE_SOURCES = new Set([
+    '',
+    'claude',
+    'ai21',
+    'deepseek',
+    'moonshot',
+    'zai',
+    'siliconflow',
+    'cometapi',
+]);
+
+export function normalizePrefix(value) {
+    return typeof value === 'string' ? value : String(value ?? '');
+}
+
+export function isEligibleGenerationType(type) {
+    return ELIGIBLE_TYPES.has(String(type ?? '').toLowerCase());
+}
+
+export function getProviderMode(source, model) {
+    const normalizedSource = String(source ?? '').toLowerCase();
+    const normalizedModel = String(model ?? '').toLowerCase();
+
+    if (GOOGLE_SOURCES.has(normalizedSource)) {
+        return 'gemini-enum';
+    }
+
+    if (normalizedSource === 'openrouter' && /(?:^|\/)google\/gemini/.test(normalizedModel)) {
+        return 'gemini-enum';
+    }
+
+    if (INCOMPATIBLE_SOURCES.has(normalizedSource)) {
+        return null;
+    }
+
+    return 'regex';
+}
+
+function escapeRegexLiteral(value) {
+    let escaped = '';
+
+    for (const character of String(value ?? '')) {
+        const codePoint = character.codePointAt(0);
+
+        if (character === '\n') {
+            escaped += '\\n';
+        } else if (character === '\r') {
+            escaped += '\\r';
+        } else if (character === '\t') {
+            escaped += '\\t';
+        } else if (/[\\^$.*+?()[\]{}|/]/.test(character)) {
+            escaped += `\\${character}`;
+        } else if (codePoint > 0x7f) {
+            for (let index = 0; index < character.length; index += 1) {
+                escaped += `\\u${character.charCodeAt(index).toString(16).toUpperCase().padStart(4, '0')}`;
+            }
+        } else {
+            escaped += character;
+        }
+    }
+
+    return escaped;
+}
+
+function buildGeminiEnumSchema(prefix, includePropertyOrdering) {
+    const value = {
+        type: 'object',
+        properties: {
+            prefix: {
+                type: 'string',
+                enum: [prefix],
+            },
+            content: {
+                type: 'string',
+                description: 'Continue the response immediately after the required prefix.',
+            },
+        },
+        required: ['prefix', 'content'],
+        additionalProperties: false,
+    };
+
+    if (includePropertyOrdering) {
+        value.propertyOrdering = ['prefix', 'content'];
+        const orderedValue = {
+            type: value.type,
+            propertyOrdering: value.propertyOrdering,
+            properties: value.properties,
+            required: value.required,
+            additionalProperties: value.additionalProperties,
+        };
+        return orderedValue;
+    }
+
+    return value;
+}
+
+function buildRegexSchema(prefix) {
+    const escapedPrefix = escapeRegexLiteral(prefix);
+
+    return {
+        type: 'object',
+        properties: {
+            response: {
+                type: 'string',
+                pattern: `^(?:${escapedPrefix})(?:.|\\n)+$`,
+            },
+        },
+        required: ['response'],
+        additionalProperties: false,
+    };
+}
+
+export function buildStructuredSchema({ source, model, prefix }) {
+    const exactPrefix = normalizePrefix(prefix);
+    const mode = getProviderMode(source, model);
+
+    if (!mode) {
+        throw new Error(`Structured prefill is not supported for source: ${String(source ?? '')}`);
+    }
+    if (exactPrefix.length === 0) {
+        throw new Error('Structured prefill requires a non-empty prefix.');
+    }
+
+    return {
+        name: 'strict_prefill_response',
+        description: 'A response with an exact required prefix followed by the continuation.',
+        strict: true,
+        value: mode === 'gemini-enum'
+            ? buildGeminiEnumSchema(exactPrefix, GOOGLE_SOURCES.has(String(source ?? '').toLowerCase()))
+            : buildRegexSchema(exactPrefix),
+    };
+}
+
+function extractJsonStringField(rawText, fieldName) {
+    const raw = String(rawText ?? '');
+    const safeField = String(fieldName ?? '').replace(/[^a-zA-Z0-9_]/g, '');
+    const match = new RegExp(`"${safeField}"\\s*:\\s*"`, 'm').exec(raw);
+    if (!match) {
+        return null;
+    }
+
+    let value = '';
+    let escaped = false;
+    let unicodeDigits = '';
+    let readingUnicode = false;
+
+    for (let index = match.index + match[0].length; index < raw.length; index += 1) {
+        const character = raw[index];
+
+        if (readingUnicode) {
+            unicodeDigits += character;
+            if (unicodeDigits.length === 4) {
+                if (/^[0-9a-fA-F]{4}$/.test(unicodeDigits)) {
+                    value += String.fromCharCode(Number.parseInt(unicodeDigits, 16));
+                }
+                readingUnicode = false;
+                unicodeDigits = '';
+            }
+            continue;
+        }
+
+        if (escaped) {
+            escaped = false;
+            if (character === 'u') {
+                readingUnicode = true;
+                continue;
+            }
+
+            const replacements = {
+                '"': '"',
+                '\\': '\\',
+                '/': '/',
+                b: '\b',
+                f: '\f',
+                n: '\n',
+                r: '\r',
+                t: '\t',
+            };
+            value += replacements[character] ?? character;
+            continue;
+        }
+
+        if (character === '\\') {
+            escaped = true;
+            continue;
+        }
+
+        if (character === '"') {
+            return { value, complete: true };
+        }
+
+        value += character;
+    }
+
+    return { value, complete: false };
+}
+
+function parseCompleteObject(rawText) {
+    const raw = String(rawText ?? '').trim();
+    const firstBrace = raw.indexOf('{');
+    if (firstBrace === -1) {
+        return null;
+    }
+
+    try {
+        const parsed = JSON.parse(raw.slice(firstBrace));
+        return parsed && typeof parsed === 'object' ? parsed : null;
+    } catch {
+        return null;
+    }
+}
+
+function appendToContinuedMessage(decoded, { baseText, generationType }) {
+    const base = String(baseText ?? '');
+    return generationType === 'continue' ? base + decoded : decoded;
+}
+
+function unwrapGeminiEnum(rawText, expectedPrefix) {
+    const parsed = parseCompleteObject(rawText);
+    if (parsed) {
+        if (parsed.prefix !== expectedPrefix || typeof parsed.content !== 'string') {
+            return null;
+        }
+        return expectedPrefix + parsed.content;
+    }
+
+    const prefix = extractJsonStringField(rawText, 'prefix');
+    if (!prefix?.complete || prefix.value !== expectedPrefix) {
+        return null;
+    }
+
+    const content = extractJsonStringField(rawText, 'content');
+    return expectedPrefix + (content?.value ?? '');
+}
+
+function unwrapRegex(rawText, expectedPrefix) {
+    const parsed = parseCompleteObject(rawText);
+    const extractedValue = parsed && typeof parsed.response === 'string'
+        ? parsed.response
+        : extractJsonStringField(rawText, 'response')?.value;
+
+    if (typeof extractedValue !== 'string') {
+        return null;
+    }
+
+    if (!expectedPrefix.startsWith(extractedValue) && !extractedValue.startsWith(expectedPrefix)) {
+        return null;
+    }
+
+    return extractedValue;
+}
+
+export function unwrapStructuredOutput(rawText, state) {
+    const expectedPrefix = normalizePrefix(state?.expectedPrefix);
+    if (!expectedPrefix) {
+        return null;
+    }
+
+    const decoded = state?.mode === 'gemini-enum'
+        ? unwrapGeminiEnum(rawText, expectedPrefix)
+        : state?.mode === 'regex'
+            ? unwrapRegex(rawText, expectedPrefix)
+            : null;
+
+    return typeof decoded === 'string' ? appendToContinuedMessage(decoded, state) : null;
+}

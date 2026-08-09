@@ -1,0 +1,55 @@
+<div id="strict-prefill-settings" class="extension_container strict-prefill-settings">
+    <div class="inline-drawer">
+        <div class="inline-drawer-toggle inline-drawer-header">
+            <span class="strict-prefill-heading">
+                <i class="fa-solid fa-forward-step" aria-hidden="true"></i>
+                <b>Strict Prefill Bridge</b>
+            </span>
+            <div class="inline-drawer-icon fa-solid fa-circle-chevron-down down"></div>
+        </div>
+
+        <div class="inline-drawer-content">
+            <div class="strict-prefill-trace" aria-label="Как начинается ответ">
+                <code id="strict-prefill-preview" aria-live="polite">&lt;think&gt;</code>
+                <i class="fa-solid fa-arrow-right-long" aria-hidden="true"></i>
+                <span>продолжение модели</span>
+                <span id="strict-prefill-status" class="strict-prefill-status">Включён</span>
+            </div>
+
+            <label class="checkbox_label strict-prefill-toggle" for="strict-prefill-enabled">
+                <input id="strict-prefill-enabled" type="checkbox" class="checkbox">
+                <span>
+                    <strong>Добавлять строгий префилл</strong>
+                    <small>Начинать каждый новый ответ с указанного текста.</small>
+                </span>
+            </label>
+
+            <div class="strict-prefill-field">
+                <label for="strict-prefill-prefix">Текст в начале ответа</label>
+                <textarea id="strict-prefill-prefix" rows="5" spellcheck="false" class="text_pole" placeholder="&lt;think&gt;"></textarea>
+                <small>
+                    Normal, Regenerate, Swipe и Continue получают новый префилл.
+                </small>
+            </div>
+
+            <div class="strict-prefill-note">
+                <i class="fa-solid fa-brackets-curly" aria-hidden="true"></i>
+                <span>Префилл закрепляется через Structured Outputs / JSON Schema. Скрытые user-сообщения не добавляются.</span>
+            </div>
+
+            <div class="strict-prefill-note">
+                <i class="fa-solid fa-key" aria-hidden="true"></i>
+                <span>Провайдер, ключи и уровень мышления берутся из текущих настроек SillyTavern.</span>
+            </div>
+
+            <a class="strict-prefill-community" href="https://discord.gg/xKhu72AqHT" target="_blank" rel="noopener noreferrer">
+                <i class="fa-brands fa-discord" aria-hidden="true"></i>
+                <span>
+                    <strong>Наш Discord-сервер</strong>
+                    <small>SillyTavern, общение и пресеты</small>
+                </span>
+                <i class="fa-solid fa-arrow-up-right-from-square" aria-hidden="true"></i>
+            </a>
+        </div>
+    </div>
+</div>

@@ -1,0 +1,11 @@
+{
+  "display_name": "Strict Prefill Bridge",
+  "loading_order": 1,
+  "requires": [],
+  "optional": [],
+  "js": "index.js",
+  "css": "style.css",
+  "author": "ilyar",
+  "version": "0.3.0",
+  "minimum_client_version": "1.18.0"
+}

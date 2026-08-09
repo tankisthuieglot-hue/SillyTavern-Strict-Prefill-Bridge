@@ -1,0 +1,145 @@
+.strict-prefill-settings {
+    --strict-prefill-accent: var(--SmartThemeQuoteColor, #8aa7ff);
+    --strict-prefill-border: var(--SmartThemeBorderColor, rgba(255, 255, 255, 0.2));
+    --strict-prefill-surface: var(--black30a, rgba(0, 0, 0, 0.18));
+}
+
+.strict-prefill-settings .inline-drawer-content {
+    display: flex;
+    flex-direction: column;
+    gap: 0.85rem;
+    padding-bottom: 0.75rem;
+}
+
+.strict-prefill-heading {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.55rem;
+}
+
+.strict-prefill-heading > i {
+    color: var(--strict-prefill-accent);
+}
+
+.strict-prefill-trace {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr) auto;
+    align-items: center;
+    gap: 0.6rem;
+    padding: 0.7rem 0.8rem;
+    border: 1px solid var(--strict-prefill-border);
+    border-left: 3px solid var(--strict-prefill-accent);
+    border-radius: 6px;
+    background: var(--strict-prefill-surface);
+}
+
+.strict-prefill-trace code {
+    min-width: 0;
+    overflow-wrap: anywhere;
+    white-space: pre-wrap;
+    color: var(--strict-prefill-accent);
+    font-family: Consolas, "Cascadia Mono", monospace;
+}
+
+.strict-prefill-trace > i {
+    opacity: 0.7;
+}
+
+.strict-prefill-status {
+    padding: 0.15rem 0.45rem;
+    border: 1px solid var(--strict-prefill-border);
+    border-radius: 999px;
+    font-size: 0.75rem;
+    white-space: nowrap;
+}
+
+.strict-prefill-toggle {
+    align-items: flex-start;
+    gap: 0.55rem;
+}
+
+.strict-prefill-toggle > span {
+    display: flex;
+    flex-direction: column;
+    gap: 0.1rem;
+}
+
+.strict-prefill-field {
+    display: flex;
+    flex-direction: column;
+    gap: 0.35rem;
+}
+
+.strict-prefill-field textarea {
+    min-height: 6.5rem;
+    resize: vertical;
+    white-space: pre-wrap;
+    font-family: Consolas, "Cascadia Mono", monospace;
+    line-height: 1.45;
+}
+
+.strict-prefill-field textarea:focus-visible {
+    outline: 2px solid var(--strict-prefill-accent);
+    outline-offset: 1px;
+}
+
+.strict-prefill-note {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.55rem;
+    padding-top: 0.7rem;
+    border-top: 1px solid var(--strict-prefill-border);
+    opacity: 0.85;
+    font-size: 0.9rem;
+}
+
+.strict-prefill-note > i {
+    margin-top: 0.15rem;
+    color: var(--strict-prefill-accent);
+}
+
+.strict-prefill-community {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    align-items: center;
+    gap: 0.7rem;
+    padding: 0.75rem 0.8rem;
+    border: 1px solid color-mix(in srgb, #5865f2 65%, var(--strict-prefill-border));
+    border-radius: 6px;
+    background: color-mix(in srgb, #5865f2 14%, var(--strict-prefill-surface));
+    color: inherit;
+    text-decoration: none;
+    transition: border-color 120ms ease, background 120ms ease;
+}
+
+.strict-prefill-community:hover {
+    border-color: #7289da;
+    background: color-mix(in srgb, #5865f2 22%, var(--strict-prefill-surface));
+}
+
+.strict-prefill-community > .fa-discord {
+    color: #7289da;
+    font-size: 1.35rem;
+}
+
+.strict-prefill-community > span {
+    display: flex;
+    flex-direction: column;
+    gap: 0.1rem;
+}
+
+.strict-prefill-community small,
+.strict-prefill-community > .fa-arrow-up-right-from-square {
+    opacity: 0.75;
+}
+
+@media (max-width: 520px) {
+    .strict-prefill-trace {
+        grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+    }
+
+    .strict-prefill-status {
+        grid-column: 1 / -1;
+        justify-self: start;
+    }
+}
