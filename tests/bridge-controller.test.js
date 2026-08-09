@@ -46,6 +46,34 @@ test('Gemini normal generation receives enum schema without changing prompt or t
     assert.equal(controller.getSnapshot().mode, 'split-enum');
 });
 
+test('Prefill-first CoT guides direct Gemini without changing native thinking settings', () => {
+    const { controller } = makeHarness({
+        settings: {
+            enabled: true,
+            prefix: '<think>',
+            prefillFirstCot: true,
+        },
+    });
+    const payload = {
+        type: 'normal',
+        chat_completion_source: 'makersuite',
+        model: 'gemini-3.1-pro',
+        reasoning_effort: 'max',
+        include_reasoning: true,
+        thinkingLevel: 'high',
+        max_tokens: 30000,
+        messages: [{ role: 'user', content: 'hello' }],
+    };
+
+    assert.equal(controller.onSettingsReady(payload), true);
+    assert.match(payload.json_schema.value.properties.prefix.description, /before any reasoning/i);
+    assert.match(payload.json_schema.value.properties.content.description, /only after/i);
+    assert.equal(payload.reasoning_effort, 'max');
+    assert.equal(payload.include_reasoning, true);
+    assert.equal(payload.thinkingLevel, 'high');
+    assert.equal(payload.max_tokens, 30000);
+});
+
 test('Gemini can require a configurable minimum content length after the prefix', () => {
     const { controller } = makeHarness({
         settings: {

@@ -89,6 +89,7 @@ export function createBridgeController({ getContext, getSettings, notifyWarning 
             model: payload.model,
             prefix,
             minimumContentCharacters: settings?.minimumContentCharacters,
+            prefillFirstCot: settings?.prefillFirstCot === true,
         });
         delete payload.assistant_prefill;
 

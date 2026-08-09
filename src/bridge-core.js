@@ -150,13 +150,24 @@ function escapeRegexLiteral(value) {
     return escaped;
 }
 
-function buildGeminiEnumSchema(prefix, includePropertyOrdering, minimumContentCharacters) {
+function buildGeminiEnumSchema(prefix, includePropertyOrdering, minimumContentCharacters, prefillFirstCot) {
+    const googleHtmlQuoteGuidance = `Inside every <info> HTML tracker, output ${HTML_QUOTE_TOKEN} instead of each double-quote character and preserve existing ${HTML_QUOTE_TOKEN} tokens exactly. Never output a literal double quote inside an <info> tracker.`;
+    const prefixProperty = {
+        type: 'string',
+        enum: [prefix],
+    };
     const content = {
         type: 'string',
         description: includePropertyOrdering
-            ? `Continue the response immediately after the required prefix. Inside every <info> HTML tracker, output ${HTML_QUOTE_TOKEN} instead of each double-quote character and preserve existing ${HTML_QUOTE_TOKEN} tokens exactly. Never output a literal double quote inside an <info> tracker.`
+            ? `Continue the response immediately after the required prefix. ${googleHtmlQuoteGuidance}`
             : 'Continue the response immediately after the required prefix.',
     };
+
+    if (includePropertyOrdering && prefillFirstCot === true) {
+        prefixProperty.description = 'Emit this exact prefix as the first model output before any reasoning, planning, analysis, or drafting.';
+        content.description = `Only after emitting the required prefix, perform reasoning and continue the response. ${googleHtmlQuoteGuidance}`;
+    }
+
     const minimum = normalizeMinimumContentCharacters(minimumContentCharacters);
     if (includePropertyOrdering && minimum > 0) {
         content.minLength = minimum;
@@ -165,10 +176,7 @@ function buildGeminiEnumSchema(prefix, includePropertyOrdering, minimumContentCh
     const value = {
         type: 'object',
         properties: {
-            prefix: {
-                type: 'string',
-                enum: [prefix],
-            },
+            prefix: prefixProperty,
             content,
         },
         required: ['prefix', 'content'],
@@ -206,7 +214,7 @@ function buildRegexSchema(prefix) {
     };
 }
 
-export function buildStructuredSchema({ source, model, prefix, minimumContentCharacters = 0 }) {
+export function buildStructuredSchema({ source, model, prefix, minimumContentCharacters = 0, prefillFirstCot = false }) {
     const exactPrefix = normalizePrefix(prefix);
     const mode = getProviderMode(source, model);
 
@@ -226,6 +234,7 @@ export function buildStructuredSchema({ source, model, prefix, minimumContentCha
                 exactPrefix,
                 GOOGLE_SOURCES.has(String(source ?? '').toLowerCase()),
                 minimumContentCharacters,
+                prefillFirstCot,
             )
             : buildRegexSchema(exactPrefix),
     };
