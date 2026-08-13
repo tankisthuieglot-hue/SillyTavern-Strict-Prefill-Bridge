@@ -35,6 +35,26 @@ function findLastAssistantMessage(chat) {
     return null;
 }
 
+function appendHistoryPrefillAndContinue(messages, prefix) {
+    if (!Array.isArray(messages)) {
+        return false;
+    }
+
+    const lastMessage = messages.at(-1);
+    if (lastMessage?.role === 'assistant' && typeof lastMessage.content === 'string') {
+        if (!lastMessage.content.endsWith(prefix)) {
+            lastMessage.content += prefix;
+        }
+    } else if (lastMessage?.role === 'assistant' && Array.isArray(lastMessage.content)) {
+        lastMessage.content.push({ type: 'text', text: prefix });
+    } else {
+        messages.push({ role: 'assistant', content: prefix });
+    }
+
+    messages.push({ role: 'user', content: 'Continue' });
+    return true;
+}
+
 export function createBridgeController({ getContext, getSettings, notifyWarning }) {
     let state = idleState();
 
@@ -61,8 +81,11 @@ export function createBridgeController({ getContext, getSettings, notifyWarning 
             return false;
         }
 
-        const mode = getProviderMode(payload.chat_completion_source, payload.model);
-        if (!mode) {
+        const historyContinue = settings?.prefillFirstCot === true;
+        const providerMode = historyContinue
+            ? null
+            : getProviderMode(payload.chat_completion_source, payload.model);
+        if (!historyContinue && !providerMode) {
             warn(`Structured prefill is not available for the direct ${String(payload.chat_completion_source ?? 'unknown')} route in this SillyTavern version.`);
             return false;
         }
@@ -79,23 +102,29 @@ export function createBridgeController({ getContext, getSettings, notifyWarning 
             trackedSwipeId = Number.isInteger(assistant.message.swipe_id) ? assistant.message.swipe_id : -1;
         }
 
-        const htmlQuoteEncoding = protectGoogleHtmlTrackerQuotes(
-            payload.messages,
-            payload.chat_completion_source,
-        );
+        let htmlQuoteEncoding = false;
 
-        payload.json_schema = buildStructuredSchema({
-            source: payload.chat_completion_source,
-            model: payload.model,
-            prefix,
-            minimumContentCharacters: settings?.minimumContentCharacters,
-            prefillFirstCot: settings?.prefillFirstCot === true,
-        });
+        if (historyContinue) {
+            if (!appendHistoryPrefillAndContinue(payload.messages, prefix)) {
+                return false;
+            }
+        } else {
+            htmlQuoteEncoding = protectGoogleHtmlTrackerQuotes(
+                payload.messages,
+                payload.chat_completion_source,
+            );
+            payload.json_schema = buildStructuredSchema({
+                source: payload.chat_completion_source,
+                model: payload.model,
+                prefix,
+                minimumContentCharacters: settings?.minimumContentCharacters,
+            });
+        }
         delete payload.assistant_prefill;
 
         state = {
             active: true,
-            mode,
+            mode: historyContinue ? 'history-continue' : providerMode,
             expectedPrefix: prefix,
             baseText,
             latestRaw: '',

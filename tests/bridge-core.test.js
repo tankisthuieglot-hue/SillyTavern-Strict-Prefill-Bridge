@@ -74,30 +74,6 @@ test('streaming Gemini JSON is unwrapped only after the exact enum prefix is pre
     assert.equal(unwrapStructuredOutput('{"prefix":"<think>","content":"done"}', state), '<think>done');
 });
 
-test('direct Gemini can guide visible CoT after the exact prefix', () => {
-    const schema = buildStructuredSchema({
-        source: 'vertexai',
-        model: 'gemini-3.6-flash',
-        prefix: '<think>',
-        prefillFirstCot: true,
-    });
-
-    assert.match(schema.value.properties.prefix.description, /before any reasoning/i);
-    assert.match(schema.value.properties.content.description, /only after/i);
-});
-
-test('Prefill-first CoT guidance does not affect routed Gemini providers', () => {
-    const schema = buildStructuredSchema({
-        source: 'openrouter',
-        model: 'google/gemini-3.6-flash',
-        prefix: '<think>',
-        prefillFirstCot: true,
-    });
-
-    assert.equal(schema.value.properties.prefix.description, undefined);
-    assert.equal(schema.value.properties.content.description, 'Continue the response immediately after the required prefix.');
-});
-
 test('Gemini HTML survives unescaped quotes inside a malformed streamed JSON string', () => {
     const state = { mode: 'split-enum', expectedPrefix: '<think>', baseText: '', generationType: 'normal' };
     const raw = '{"prefix":"<think>","content":"<info><span style="color:#a6b1e1">clock</span> | <span style="color:#fff">next</span>"}';

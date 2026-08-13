@@ -46,7 +46,7 @@ test('Gemini normal generation receives enum schema without changing prompt or t
     assert.equal(controller.getSnapshot().mode, 'split-enum');
 });
 
-test('Prefill-first CoT guides direct Gemini without changing native thinking settings', () => {
+test('Kiro-style emulation sends assistant prefill followed by hidden Continue', () => {
     const { controller } = makeHarness({
         settings: {
             enabled: true,
@@ -66,12 +66,78 @@ test('Prefill-first CoT guides direct Gemini without changing native thinking se
     };
 
     assert.equal(controller.onSettingsReady(payload), true);
-    assert.match(payload.json_schema.value.properties.prefix.description, /before any reasoning/i);
-    assert.match(payload.json_schema.value.properties.content.description, /only after/i);
+    assert.deepEqual(payload.messages, [
+        { role: 'user', content: 'hello' },
+        { role: 'assistant', content: '<think>' },
+        { role: 'user', content: 'Continue' },
+    ]);
+    assert.equal(payload.json_schema, undefined);
+    assert.equal(controller.getSnapshot().mode, 'history-continue');
+    assert.equal(controller.onStream('plan\nstep'), '<think>plan\nstep');
     assert.equal(payload.reasoning_effort, 'max');
     assert.equal(payload.include_reasoning, true);
     assert.equal(payload.thinkingLevel, 'high');
     assert.equal(payload.max_tokens, 30000);
+});
+
+test('Kiro-style emulation also works on a direct Claude route unsupported by schema mode', () => {
+    const { controller } = makeHarness({
+        settings: {
+            enabled: true,
+            prefix: '<thinking>',
+            prefillFirstCot: true,
+        },
+    });
+    const payload = {
+        type: 'swipe',
+        chat_completion_source: 'claude',
+        model: 'claude-opus-4.6',
+        assistant_prefill: '<thinking>',
+        messages: [{ role: 'user', content: 'hello' }],
+    };
+
+    assert.equal(controller.onSettingsReady(payload), true);
+    assert.deepEqual(payload.messages, [
+        { role: 'user', content: 'hello' },
+        { role: 'assistant', content: '<thinking>' },
+        { role: 'user', content: 'Continue' },
+    ]);
+    assert.equal(payload.assistant_prefill, undefined);
+    assert.equal(payload.json_schema, undefined);
+    assert.equal(controller.onStream('<thinking>already echoed'), '<thinking>already echoed');
+});
+
+test('Kiro-style Continue merges the prefix into trailing assistant history without duplicating chat text', () => {
+    const chat = [{
+        is_user: false,
+        mes: 'The lantern went dark.',
+        swipe_id: 0,
+        swipes: ['The lantern went dark.'],
+    }];
+    const { controller } = makeHarness({
+        chat,
+        settings: {
+            enabled: true,
+            prefix: '<think>',
+            prefillFirstCot: true,
+        },
+    });
+    const payload = {
+        type: 'continue',
+        chat_completion_source: 'vertexai',
+        model: 'gemini-3.6-flash',
+        messages: [{ role: 'assistant', content: 'The lantern went dark.' }],
+    };
+
+    assert.equal(controller.onSettingsReady(payload), true);
+    assert.deepEqual(payload.messages, [
+        { role: 'assistant', content: 'The lantern went dark.<think>' },
+        { role: 'user', content: 'Continue' },
+    ]);
+    assert.equal(
+        controller.onStream(' Then footsteps followed.'),
+        'The lantern went dark.<think> Then footsteps followed.',
+    );
 });
 
 test('Gemini can require a configurable minimum content length after the prefix', () => {

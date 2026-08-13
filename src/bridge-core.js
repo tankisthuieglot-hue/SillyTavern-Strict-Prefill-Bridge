@@ -151,7 +151,7 @@ function escapeRegexLiteral(value) {
     return escaped;
 }
 
-function buildGeminiEnumSchema(prefix, includePropertyOrdering, minimumContentCharacters, prefillFirstCot) {
+function buildGeminiEnumSchema(prefix, includePropertyOrdering, minimumContentCharacters) {
     const googleHtmlQuoteGuidance = `Inside every <info> HTML tracker, output ${HTML_QUOTE_TOKEN} instead of each double-quote character and preserve existing ${HTML_QUOTE_TOKEN} tokens exactly. Never output a literal double quote inside an <info> tracker.`;
     const prefixProperty = {
         type: 'string',
@@ -163,11 +163,6 @@ function buildGeminiEnumSchema(prefix, includePropertyOrdering, minimumContentCh
             ? `Continue the response immediately after the required prefix. ${googleHtmlQuoteGuidance}`
             : 'Continue the response immediately after the required prefix.',
     };
-
-    if (includePropertyOrdering && prefillFirstCot === true) {
-        prefixProperty.description = 'Emit this exact prefix as the first model output before any reasoning, planning, analysis, or drafting.';
-        content.description = `Only after emitting the required prefix, perform reasoning and continue the response. ${googleHtmlQuoteGuidance}`;
-    }
 
     const minimum = normalizeMinimumContentCharacters(minimumContentCharacters);
     if (includePropertyOrdering && minimum > 0) {
@@ -215,7 +210,7 @@ function buildRegexSchema(prefix) {
     };
 }
 
-export function buildStructuredSchema({ source, model, prefix, minimumContentCharacters = 0, prefillFirstCot = false }) {
+export function buildStructuredSchema({ source, model, prefix, minimumContentCharacters = 0 }) {
     const exactPrefix = normalizePrefix(prefix);
     const mode = getProviderMode(source, model);
 
@@ -235,7 +230,6 @@ export function buildStructuredSchema({ source, model, prefix, minimumContentCha
                 exactPrefix,
                 GOOGLE_SOURCES.has(String(source ?? '').toLowerCase()),
                 minimumContentCharacters,
-                prefillFirstCot,
             )
             : buildRegexSchema(exactPrefix),
     };
@@ -337,6 +331,20 @@ function appendToContinuedMessage(decoded, { baseText, generationType }) {
     return generationType === 'continue' ? base + decoded : decoded;
 }
 
+function unwrapHistoryContinue(rawText, expectedPrefix) {
+    const raw = String(rawText ?? '');
+
+    if (raw.startsWith(expectedPrefix)) {
+        return raw;
+    }
+
+    if (expectedPrefix.startsWith(raw)) {
+        return expectedPrefix;
+    }
+
+    return expectedPrefix + raw;
+}
+
 function unwrapGeminiEnum(rawText, expectedPrefix) {
     const parsed = parseCompleteObject(rawText);
     if (parsed) {
@@ -378,11 +386,13 @@ export function unwrapStructuredOutput(rawText, state) {
         return null;
     }
 
-    let decoded = state?.mode === 'split-enum'
-        ? unwrapGeminiEnum(rawText, expectedPrefix)
-        : state?.mode === 'regex'
-            ? unwrapRegex(rawText, expectedPrefix)
-            : null;
+    let decoded = state?.mode === 'history-continue'
+        ? unwrapHistoryContinue(rawText, expectedPrefix)
+        : state?.mode === 'split-enum'
+            ? unwrapGeminiEnum(rawText, expectedPrefix)
+            : state?.mode === 'regex'
+                ? unwrapRegex(rawText, expectedPrefix)
+                : null;
 
     if (typeof decoded === 'string' && state?.htmlQuoteEncoding === true) {
         decoded = decoded.replaceAll(HTML_QUOTE_TOKEN, '"');

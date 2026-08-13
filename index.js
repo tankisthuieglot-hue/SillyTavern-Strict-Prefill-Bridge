@@ -121,7 +121,7 @@ function domContainsStructuredJson(messageId) {
 function renderDecodedStream() {
     renderFrame = null;
     const snapshot = controller.getSnapshot();
-    if (!snapshot.active || !snapshot.latestRaw) {
+    if (!snapshot.active || (!snapshot.latestRaw && snapshot.mode !== 'history-continue')) {
         return;
     }
 

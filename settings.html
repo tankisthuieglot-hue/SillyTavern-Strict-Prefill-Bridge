@@ -36,21 +36,21 @@
                 <label for="strict-prefill-minimum-content">Минимум символов после префилла (Gemini)</label>
                 <input id="strict-prefill-minimum-content" type="number" min="0" max="200000" step="500" class="text_pole" inputmode="numeric">
                 <small>
-                    0 — без ограничения. Если Gemini слишком рано закрывает длинный трекер, попробуйте 16000–24000. Лимит токенов и уровень мышления не меняются.
+                    0 — без ограничения. Если Gemini слишком рано закрывает длинный трекер, попробуйте 16000–24000. Не действует при включённой эмуляции Kiro Gateway. Лимит токенов и уровень мышления не меняются.
                 </small>
             </div>
 
             <label class="checkbox_label strict-prefill-toggle" for="strict-prefill-first-cot">
                 <input id="strict-prefill-first-cot" type="checkbox" class="checkbox">
                 <span>
-                    <strong>Prefill-first CoT (экспериментально)</strong>
-                    <small>Для прямых Google AI и Vertex просит Gemini вывести строгий префилл до видимого CoT. Уровень и показ нативного thinking не меняются; результат не гарантирован.</small>
+                    <strong>Эмуляция как Kiro Gateway (экспериментально)</strong>
+                    <small>Добавляет префилл в историю как ответ assistant, затем отправляет скрытое user-сообщение Continue. Работает через выбранного провайдера без JSON Schema. Для режима должны быть включены обе галочки. Скрытое Continue существует только в исходящем запросе и не появляется в чате.</small>
                 </span>
             </label>
 
             <div class="strict-prefill-note">
                 <i class="fa-solid fa-brackets-curly" aria-hidden="true"></i>
-                <span>Префилл закрепляется через Structured Outputs / JSON Schema. Скрытые user-сообщения не добавляются.</span>
+                <span>Обычный режим использует Structured Outputs / JSON Schema. Эмуляция Kiro Gateway использует цепочку assistant-prefill → скрытое user: Continue. Это не нативный API-prefill и не отключает родное мышление модели.</span>
             </div>
 
             <div class="strict-prefill-note">

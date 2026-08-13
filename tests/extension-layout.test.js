@@ -31,9 +31,11 @@ function makeControl(initial = {}) {
 
 test('manifest installs as an event-driven SillyTavern 1.18 extension', async () => {
     const manifest = JSON.parse(await readProjectFile('manifest.json'));
+    const packageJson = JSON.parse(await readProjectFile('package.json'));
 
     assert.equal(manifest.display_name, 'Strict Prefill Bridge');
-    assert.equal(manifest.version, '0.5.0');
+    assert.match(manifest.version, /^\d+\.\d+\.\d+$/);
+    assert.equal(manifest.version, packageJson.version);
     assert.equal(manifest.js, 'index.js');
     assert.equal(manifest.css, 'style.css');
     assert.equal(manifest.generate_interceptor, undefined);
@@ -50,6 +52,7 @@ test('settings explain the structured-output mechanism and expose an exact-prefi
     assert.match(settingsSource, /id="strict-prefill-prefix"[^>]*rows="5"[^>]*spellcheck="false"/);
     assert.match(settingsSource, /id="strict-prefill-minimum-content"[^>]*type="number"/);
     assert.match(settingsSource, /Structured Outputs|JSON Schema/);
+    assert.match(settingsSource, /Kiro Gateway/);
     assert.match(settingsSource, /Continue/);
 });
 
