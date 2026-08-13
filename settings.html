@@ -44,13 +44,13 @@
                 <input id="strict-prefill-first-cot" type="checkbox" class="checkbox">
                 <span>
                     <strong>Эмуляция как Kiro Gateway (экспериментально)</strong>
-                    <small>Добавляет префилл в историю как ответ assistant, затем отправляет скрытое user-сообщение Continue. Работает через выбранного провайдера без JSON Schema. Для режима должны быть включены обе галочки. Скрытое Continue существует только в исходящем запросе и не появляется в чате.</small>
+                    <small>Добавляет префилл в историю как ответ assistant, затем скрыто требует продолжить его ровно с последнего символа и заполнить незакрытый тег или структуру. Работает через выбранного провайдера без JSON Schema. Для режима должны быть включены обе галочки. Скрытая инструкция существует только в исходящем запросе и не появляется в чате.</small>
                 </span>
             </label>
 
             <div class="strict-prefill-note">
                 <i class="fa-solid fa-brackets-curly" aria-hidden="true"></i>
-                <span>Обычный режим использует Structured Outputs / JSON Schema. Эмуляция Kiro Gateway использует цепочку assistant-prefill → скрытое user: Continue. Это не нативный API-prefill и не отключает родное мышление модели.</span>
+                <span>Обычный режим использует Structured Outputs / JSON Schema. Эмуляция Kiro Gateway использует цепочку assistant-prefill → строгая скрытая команда продолжения. Это не нативный API-prefill и не отключает родное мышление модели.</span>
             </div>
 
             <div class="strict-prefill-note">

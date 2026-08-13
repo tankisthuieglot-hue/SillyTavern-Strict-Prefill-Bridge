@@ -3,6 +3,8 @@ import assert from 'node:assert/strict';
 
 import { createBridgeController } from '../src/bridge-controller.js';
 
+const STRICT_CONTINUATION_PROMPT = 'Continue the immediately preceding assistant message from its exact final character. It is the unfinished beginning of your current response, not a previous completed turn. Do not restart, summarize, replace, quote, or repeat it. If it ends with an opening tag or incomplete structure, write substantial content inside that structure before closing it, then continue the response.';
+
 function makeHarness(overrides = {}) {
     const calls = { warnings: [], renders: [] };
     const settings = overrides.settings ?? {
@@ -46,7 +48,7 @@ test('Gemini normal generation receives enum schema without changing prompt or t
     assert.equal(controller.getSnapshot().mode, 'split-enum');
 });
 
-test('Kiro-style emulation sends assistant prefill followed by hidden Continue', () => {
+test('Kiro-style emulation sends assistant prefill followed by a strict hidden continuation instruction', () => {
     const { controller } = makeHarness({
         settings: {
             enabled: true,
@@ -69,7 +71,7 @@ test('Kiro-style emulation sends assistant prefill followed by hidden Continue',
     assert.deepEqual(payload.messages, [
         { role: 'user', content: 'hello' },
         { role: 'assistant', content: '<think>' },
-        { role: 'user', content: 'Continue' },
+        { role: 'user', content: STRICT_CONTINUATION_PROMPT },
     ]);
     assert.equal(payload.json_schema, undefined);
     assert.equal(controller.getSnapshot().mode, 'history-continue');
@@ -100,14 +102,14 @@ test('Kiro-style emulation also works on a direct Claude route unsupported by sc
     assert.deepEqual(payload.messages, [
         { role: 'user', content: 'hello' },
         { role: 'assistant', content: '<thinking>' },
-        { role: 'user', content: 'Continue' },
+        { role: 'user', content: STRICT_CONTINUATION_PROMPT },
     ]);
     assert.equal(payload.assistant_prefill, undefined);
     assert.equal(payload.json_schema, undefined);
     assert.equal(controller.onStream('<thinking>already echoed'), '<thinking>already echoed');
 });
 
-test('Kiro-style Continue merges the prefix into trailing assistant history without duplicating chat text', () => {
+test('Kiro-style continuation merges the prefix into trailing assistant history without duplicating chat text', () => {
     const chat = [{
         is_user: false,
         mes: 'The lantern went dark.',
@@ -132,7 +134,7 @@ test('Kiro-style Continue merges the prefix into trailing assistant history with
     assert.equal(controller.onSettingsReady(payload), true);
     assert.deepEqual(payload.messages, [
         { role: 'assistant', content: 'The lantern went dark.<think>' },
-        { role: 'user', content: 'Continue' },
+        { role: 'user', content: STRICT_CONTINUATION_PROMPT },
     ]);
     assert.equal(
         controller.onStream(' Then footsteps followed.'),

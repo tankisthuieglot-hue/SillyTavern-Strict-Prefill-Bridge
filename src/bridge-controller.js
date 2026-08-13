@@ -7,6 +7,8 @@ import {
     unwrapStructuredOutput,
 } from './bridge-core.js';
 
+const STRICT_CONTINUATION_PROMPT = 'Continue the immediately preceding assistant message from its exact final character. It is the unfinished beginning of your current response, not a previous completed turn. Do not restart, summarize, replace, quote, or repeat it. If it ends with an opening tag or incomplete structure, write substantial content inside that structure before closing it, then continue the response.';
+
 function idleState() {
     return {
         active: false,
@@ -51,7 +53,7 @@ function appendHistoryPrefillAndContinue(messages, prefix) {
         messages.push({ role: 'assistant', content: prefix });
     }
 
-    messages.push({ role: 'user', content: 'Continue' });
+    messages.push({ role: 'user', content: STRICT_CONTINUATION_PROMPT });
     return true;
 }
 
