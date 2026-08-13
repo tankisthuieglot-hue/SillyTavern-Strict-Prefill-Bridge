@@ -331,20 +331,6 @@ function appendToContinuedMessage(decoded, { baseText, generationType }) {
     return generationType === 'continue' ? base + decoded : decoded;
 }
 
-function unwrapHistoryContinue(rawText, expectedPrefix) {
-    const raw = String(rawText ?? '');
-
-    if (raw.startsWith(expectedPrefix)) {
-        return raw;
-    }
-
-    if (expectedPrefix.startsWith(raw)) {
-        return expectedPrefix;
-    }
-
-    return expectedPrefix + raw;
-}
-
 function unwrapGeminiEnum(rawText, expectedPrefix) {
     const parsed = parseCompleteObject(rawText);
     if (parsed) {
@@ -386,13 +372,11 @@ export function unwrapStructuredOutput(rawText, state) {
         return null;
     }
 
-    let decoded = state?.mode === 'history-continue'
-        ? unwrapHistoryContinue(rawText, expectedPrefix)
-        : state?.mode === 'split-enum'
-            ? unwrapGeminiEnum(rawText, expectedPrefix)
-            : state?.mode === 'regex'
-                ? unwrapRegex(rawText, expectedPrefix)
-                : null;
+    let decoded = state?.mode === 'split-enum'
+        ? unwrapGeminiEnum(rawText, expectedPrefix)
+        : state?.mode === 'regex'
+            ? unwrapRegex(rawText, expectedPrefix)
+            : null;
 
     if (typeof decoded === 'string' && state?.htmlQuoteEncoding === true) {
         decoded = decoded.replaceAll(HTML_QUOTE_TOKEN, '"');

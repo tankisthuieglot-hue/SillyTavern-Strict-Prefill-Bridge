@@ -3,8 +3,6 @@ import assert from 'node:assert/strict';
 
 import { createBridgeController } from '../src/bridge-controller.js';
 
-const STRICT_CONTINUATION_PROMPT = 'Continue the immediately preceding assistant message from its exact final character. It is the unfinished beginning of your current response, not a previous completed turn. Do not restart, summarize, replace, quote, or repeat it. If it ends with an opening tag or incomplete structure, write substantial content inside that structure before closing it, then continue the response.';
-
 function makeHarness(overrides = {}) {
     const calls = { warnings: [], renders: [] };
     const settings = overrides.settings ?? {
@@ -48,7 +46,7 @@ test('Gemini normal generation receives enum schema without changing prompt or t
     assert.equal(controller.getSnapshot().mode, 'split-enum');
 });
 
-test('Kiro-style emulation sends assistant prefill followed by a strict hidden continuation instruction', () => {
+test('two-pass mode enforces the generated thinking block through Gemini schema', () => {
     const { controller } = makeHarness({
         settings: {
             enabled: true,
@@ -67,22 +65,23 @@ test('Kiro-style emulation sends assistant prefill followed by a strict hidden c
         messages: [{ role: 'user', content: 'hello' }],
     };
 
-    assert.equal(controller.onSettingsReady(payload), true);
-    assert.deepEqual(payload.messages, [
-        { role: 'user', content: 'hello' },
-        { role: 'assistant', content: '<think>' },
-        { role: 'user', content: STRICT_CONTINUATION_PROMPT },
-    ]);
-    assert.equal(payload.json_schema, undefined);
-    assert.equal(controller.getSnapshot().mode, 'history-continue');
-    assert.equal(controller.onStream('plan\nstep'), '<think>plan\nstep');
+    assert.equal(controller.onSettingsReady(payload, {
+        generatedPrefix: '<think>plan\nstep</think>\n',
+    }), true);
+    assert.deepEqual(payload.messages, [{ role: 'user', content: 'hello' }]);
+    assert.deepEqual(payload.json_schema.value.properties.prefix.enum, ['<think>plan\nstep</think>\n']);
+    assert.equal(controller.getSnapshot().mode, 'split-enum');
+    assert.equal(
+        controller.onStream('{"prefix":"<think>plan\\nstep</think>\\n","content":"answer"}'),
+        '<think>plan\nstep</think>\nanswer',
+    );
     assert.equal(payload.reasoning_effort, 'max');
     assert.equal(payload.include_reasoning, true);
     assert.equal(payload.thinkingLevel, 'high');
     assert.equal(payload.max_tokens, 30000);
 });
 
-test('Kiro-style emulation also works on a direct Claude route unsupported by schema mode', () => {
+test('two-pass mode enforces the generated prefix on OpenRouter too', () => {
     const { controller } = makeHarness({
         settings: {
             enabled: true,
@@ -92,24 +91,25 @@ test('Kiro-style emulation also works on a direct Claude route unsupported by sc
     });
     const payload = {
         type: 'swipe',
-        chat_completion_source: 'claude',
+        chat_completion_source: 'openrouter',
         model: 'claude-opus-4.6',
         assistant_prefill: '<thinking>',
         messages: [{ role: 'user', content: 'hello' }],
     };
 
-    assert.equal(controller.onSettingsReady(payload), true);
-    assert.deepEqual(payload.messages, [
-        { role: 'user', content: 'hello' },
-        { role: 'assistant', content: '<thinking>' },
-        { role: 'user', content: STRICT_CONTINUATION_PROMPT },
-    ]);
+    assert.equal(controller.onSettingsReady(payload, {
+        generatedPrefix: '<thinking>draft</thinking>\n',
+    }), true);
+    assert.deepEqual(payload.messages, [{ role: 'user', content: 'hello' }]);
     assert.equal(payload.assistant_prefill, undefined);
-    assert.equal(payload.json_schema, undefined);
-    assert.equal(controller.onStream('<thinking>already echoed'), '<thinking>already echoed');
+    assert.match(payload.json_schema.value.properties.response.pattern, /draft/);
+    assert.equal(
+        controller.onStream('{"response":"<thinking>draft</thinking>\\nanswer"}'),
+        '<thinking>draft</thinking>\nanswer',
+    );
 });
 
-test('Kiro-style continuation merges the prefix into trailing assistant history without duplicating chat text', () => {
+test('two-pass Continue appends a newly generated thinking block to the current message', () => {
     const chat = [{
         is_user: false,
         mes: 'The lantern went dark.',
@@ -131,14 +131,13 @@ test('Kiro-style continuation merges the prefix into trailing assistant history 
         messages: [{ role: 'assistant', content: 'The lantern went dark.' }],
     };
 
-    assert.equal(controller.onSettingsReady(payload), true);
-    assert.deepEqual(payload.messages, [
-        { role: 'assistant', content: 'The lantern went dark.<think>' },
-        { role: 'user', content: STRICT_CONTINUATION_PROMPT },
-    ]);
+    assert.equal(controller.onSettingsReady(payload, {
+        generatedPrefix: '<think>listen for danger</think>\n',
+    }), true);
+    assert.deepEqual(payload.messages, [{ role: 'assistant', content: 'The lantern went dark.' }]);
     assert.equal(
-        controller.onStream(' Then footsteps followed.'),
-        'The lantern went dark.<think> Then footsteps followed.',
+        controller.onStream('{"prefix":"<think>listen for danger</think>\\n","content":" Then footsteps followed."}'),
+        'The lantern went dark.<think>listen for danger</think>\n Then footsteps followed.',
     );
 });
 

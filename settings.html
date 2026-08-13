@@ -36,21 +36,21 @@
                 <label for="strict-prefill-minimum-content">Минимум символов после префилла (Gemini)</label>
                 <input id="strict-prefill-minimum-content" type="number" min="0" max="200000" step="500" class="text_pole" inputmode="numeric">
                 <small>
-                    0 — без ограничения. Если Gemini слишком рано закрывает длинный трекер, попробуйте 16000–24000. Не действует при включённой эмуляции Kiro Gateway. Лимит токенов и уровень мышления не меняются.
+                    0 — без ограничения. Если Gemini слишком рано закрывает длинный трекер, попробуйте 16000–24000. В двухшаговом режиме минимум считается после сгенерированного CoT-блока. Лимит токенов основного ответа и уровень мышления не меняются.
                 </small>
             </div>
 
             <label class="checkbox_label strict-prefill-toggle" for="strict-prefill-first-cot">
                 <input id="strict-prefill-first-cot" type="checkbox" class="checkbox">
                 <span>
-                    <strong>Эмуляция как Kiro Gateway (экспериментально)</strong>
-                    <small>Добавляет префилл в историю как ответ assistant, затем скрыто требует продолжить его ровно с последнего символа и заполнить незакрытый тег или структуру. Работает через выбранного провайдера без JSON Schema. Для режима должны быть включены обе галочки. Скрытая инструкция существует только в исходящем запросе и не появляется в чате.</small>
+                    <strong>Двухшаговый CoT (экспериментально)</strong>
+                    <small>Сначала делает скрытую генерацию до 512 токенов через текущее подключение и заполняет незакрытый префилл, например &lt;think&gt;…&lt;/think&gt;. Затем весь блок становится обязательным началом основного ответа через JSON Schema. Использует два API-запроса на один ответ; должны быть включены обе галочки.</small>
                 </span>
             </label>
 
             <div class="strict-prefill-note">
                 <i class="fa-solid fa-brackets-curly" aria-hidden="true"></i>
-                <span>Обычный режим использует Structured Outputs / JSON Schema. Эмуляция Kiro Gateway использует цепочку assistant-prefill → строгая скрытая команда продолжения. Это не нативный API-prefill и не отключает родное мышление модели.</span>
+                <span>Обычный режим закрепляет только введённый префилл через Structured Outputs / JSON Schema. Двухшаговый CoT сначала создаёт содержимое префилла отдельной генерацией, затем Schema заставляет основную модель воспроизвести весь блок и продолжить ответ.</span>
             </div>
 
             <div class="strict-prefill-note">

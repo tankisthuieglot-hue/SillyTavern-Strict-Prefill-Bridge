@@ -1,8 +1,16 @@
-import { DEFAULT_SETTINGS, normalizeMinimumContentCharacters } from './src/bridge-core.js';
+import {
+    DEFAULT_SETTINGS,
+    getProviderMode,
+    isEligibleGenerationType,
+    normalizeMinimumContentCharacters,
+    normalizePrefix,
+} from './src/bridge-core.js';
 import { createBridgeController } from './src/bridge-controller.js';
 
 const MODULE_NAME = 'strict_prefill_bridge';
 const EXTENSION_FOLDER = decodeURIComponent(new URL('.', import.meta.url).pathname.split('/').filter(Boolean).at(-1));
+const PREFILL_GENERATOR_TOKENS = 512;
+const PREFILL_GENERATOR_SYSTEM_PROMPT = `You generate the unfinished opening of an assistant response. Use the supplied conversation as context. Return only text that continues the exact required prefix, without repeating that prefix or adding a preamble. If the prefix ends with an opening tag or incomplete structure, write substantial, context-specific planning inside it, close the structure, and stop immediately after it. Do not write the final answer outside that structure. For a plain-text prefix, produce a substantial continuation that gives the main model a strong starting direction.`;
 
 let streamObserver = null;
 let observedMessageId = -1;
@@ -112,6 +120,41 @@ function clearStopCleanup() {
     }
 }
 
+function shouldGenerateTwoPassPrefix(payload, settings) {
+    const generationType = String(payload?.type ?? '').toLowerCase();
+    return settings?.enabled === true
+        && settings?.prefillFirstCot === true
+        && normalizePrefix(settings?.prefix).length > 0
+        && isEligibleGenerationType(generationType)
+        && !payload?.json_schema
+        && !(Array.isArray(payload?.tools) && payload.tools.length > 0)
+        && Array.isArray(payload?.messages)
+        && Boolean(getProviderMode(payload?.chat_completion_source, payload?.model));
+}
+
+async function generateTwoPassPrefix(payload, settings) {
+    const prefix = normalizePrefix(settings?.prefix);
+    const prompt = payload.messages.map(message => ({
+        ...message,
+        content: Array.isArray(message?.content)
+            ? message.content.map(part => (part && typeof part === 'object' ? { ...part } : part))
+            : message?.content,
+    }));
+    prompt.push({
+        role: 'user',
+        content: `The exact required prefix is:\n---BEGIN PREFIX---\n${prefix}\n---END PREFIX---\nGenerate only the text that must immediately follow it.`,
+    });
+
+    const generated = String(await SillyTavern.getContext().generateRaw({
+        prompt,
+        systemPrompt: PREFILL_GENERATOR_SYSTEM_PROMPT,
+        responseLength: PREFILL_GENERATOR_TOKENS,
+        trimNames: false,
+    }) ?? '');
+
+    return generated.startsWith(prefix) ? generated : prefix + generated;
+}
+
 function domContainsStructuredJson(messageId) {
     const textElement = document.querySelector(`.mes[mesid="${messageId}"] .mes_text`);
     const text = String(textElement?.textContent ?? '');
@@ -121,7 +164,7 @@ function domContainsStructuredJson(messageId) {
 function renderDecodedStream() {
     renderFrame = null;
     const snapshot = controller.getSnapshot();
-    if (!snapshot.active || (!snapshot.latestRaw && snapshot.mode !== 'history-continue')) {
+    if (!snapshot.active || !snapshot.latestRaw) {
         return;
     }
 
@@ -166,10 +209,22 @@ function ensureStreamObserver() {
     streamObserver.observe(messageElement, { childList: true, subtree: true, characterData: true });
 }
 
-function onSettingsReady(payload) {
+async function onSettingsReady(payload) {
     clearStopCleanup();
     disconnectStreamObserver();
-    controller.onSettingsReady(payload);
+    const settings = getSettings();
+    let generatedPrefix = '';
+
+    if (shouldGenerateTwoPassPrefix(payload, settings)) {
+        try {
+            generatedPrefix = await generateTwoPassPrefix(payload, settings);
+        } catch (error) {
+            console.warn(`[${MODULE_NAME}] Two-pass prefill generator failed:`, error);
+            toastr.warning('Предварительный CoT не сгенерирован. Используется обычный строгий префилл.', 'Strict Prefill Bridge');
+        }
+    }
+
+    controller.onSettingsReady(payload, { generatedPrefix });
 }
 
 function onStreamToken(rawText) {

@@ -7,8 +7,6 @@ import {
     unwrapStructuredOutput,
 } from './bridge-core.js';
 
-const STRICT_CONTINUATION_PROMPT = 'Continue the immediately preceding assistant message from its exact final character. It is the unfinished beginning of your current response, not a previous completed turn. Do not restart, summarize, replace, quote, or repeat it. If it ends with an opening tag or incomplete structure, write substantial content inside that structure before closing it, then continue the response.';
-
 function idleState() {
     return {
         active: false,
@@ -37,26 +35,6 @@ function findLastAssistantMessage(chat) {
     return null;
 }
 
-function appendHistoryPrefillAndContinue(messages, prefix) {
-    if (!Array.isArray(messages)) {
-        return false;
-    }
-
-    const lastMessage = messages.at(-1);
-    if (lastMessage?.role === 'assistant' && typeof lastMessage.content === 'string') {
-        if (!lastMessage.content.endsWith(prefix)) {
-            lastMessage.content += prefix;
-        }
-    } else if (lastMessage?.role === 'assistant' && Array.isArray(lastMessage.content)) {
-        lastMessage.content.push({ type: 'text', text: prefix });
-    } else {
-        messages.push({ role: 'assistant', content: prefix });
-    }
-
-    messages.push({ role: 'user', content: STRICT_CONTINUATION_PROMPT });
-    return true;
-}
-
 export function createBridgeController({ getContext, getSettings, notifyWarning }) {
     let state = idleState();
 
@@ -70,11 +48,15 @@ export function createBridgeController({ getContext, getSettings, notifyWarning 
         }
     }
 
-    function onSettingsReady(payload) {
+    function onSettingsReady(payload, { generatedPrefix = '' } = {}) {
         reset();
 
         const settings = getSettings();
-        const prefix = normalizePrefix(settings?.prefix);
+        const configuredPrefix = normalizePrefix(settings?.prefix);
+        const twoPassPrefix = normalizePrefix(generatedPrefix);
+        const prefix = settings?.prefillFirstCot === true && twoPassPrefix.length > 0
+            ? twoPassPrefix
+            : configuredPrefix;
         const generationType = String(payload?.type ?? '').toLowerCase();
         if (!payload || settings?.enabled !== true || prefix.length === 0 || !isEligibleGenerationType(generationType)) {
             return false;
@@ -83,11 +65,8 @@ export function createBridgeController({ getContext, getSettings, notifyWarning 
             return false;
         }
 
-        const historyContinue = settings?.prefillFirstCot === true;
-        const providerMode = historyContinue
-            ? null
-            : getProviderMode(payload.chat_completion_source, payload.model);
-        if (!historyContinue && !providerMode) {
+        const providerMode = getProviderMode(payload.chat_completion_source, payload.model);
+        if (!providerMode) {
             warn(`Structured prefill is not available for the direct ${String(payload.chat_completion_source ?? 'unknown')} route in this SillyTavern version.`);
             return false;
         }
@@ -104,29 +83,21 @@ export function createBridgeController({ getContext, getSettings, notifyWarning 
             trackedSwipeId = Number.isInteger(assistant.message.swipe_id) ? assistant.message.swipe_id : -1;
         }
 
-        let htmlQuoteEncoding = false;
-
-        if (historyContinue) {
-            if (!appendHistoryPrefillAndContinue(payload.messages, prefix)) {
-                return false;
-            }
-        } else {
-            htmlQuoteEncoding = protectGoogleHtmlTrackerQuotes(
-                payload.messages,
-                payload.chat_completion_source,
-            );
-            payload.json_schema = buildStructuredSchema({
-                source: payload.chat_completion_source,
-                model: payload.model,
-                prefix,
-                minimumContentCharacters: settings?.minimumContentCharacters,
-            });
-        }
+        const htmlQuoteEncoding = protectGoogleHtmlTrackerQuotes(
+            payload.messages,
+            payload.chat_completion_source,
+        );
+        payload.json_schema = buildStructuredSchema({
+            source: payload.chat_completion_source,
+            model: payload.model,
+            prefix,
+            minimumContentCharacters: settings?.minimumContentCharacters,
+        });
         delete payload.assistant_prefill;
 
         state = {
             active: true,
-            mode: historyContinue ? 'history-continue' : providerMode,
+            mode: providerMode,
             expectedPrefix: prefix,
             baseText,
             latestRaw: '',

@@ -52,7 +52,8 @@ test('settings explain the structured-output mechanism and expose an exact-prefi
     assert.match(settingsSource, /id="strict-prefill-prefix"[^>]*rows="5"[^>]*spellcheck="false"/);
     assert.match(settingsSource, /id="strict-prefill-minimum-content"[^>]*type="number"/);
     assert.match(settingsSource, /Structured Outputs|JSON Schema/);
-    assert.match(settingsSource, /Kiro Gateway/);
+    assert.match(settingsSource, /Двухшаговый CoT/);
+    assert.match(settingsSource, /два API-запроса/i);
     assert.match(settingsSource, /Continue/);
 });
 
@@ -114,6 +115,7 @@ test('browser entrypoint injects Gemini schema through the existing SillyTavern 
         },
     };
     let savedSettings = 0;
+    const generateRawCalls = [];
     const context = {
         eventSource,
         eventTypes,
@@ -124,6 +126,10 @@ test('browser entrypoint injects Gemini schema through the existing SillyTavern 
             savedSettings += 1;
         },
         updateMessageBlock: () => undefined,
+        generateRaw: async options => {
+            generateRawCalls.push(structuredClone(options));
+            return 'consider the scene carefully</think>\n';
+        },
     };
 
     globalThis.SillyTavern = { getContext: () => context };
@@ -190,6 +196,29 @@ test('browser entrypoint injects Gemini schema through the existing SillyTavern 
         assert.equal(context.extensionSettings.strict_prefill_bridge.prefillFirstCot, true);
         assert.equal(savedSettings, 4);
         assert.equal(previewControl.textContent, '  <thinking>\nплан: 🧪\n');
+
+        context.extensionSettings.strict_prefill_bridge.enabled = true;
+        context.extensionSettings.strict_prefill_bridge.prefix = '<think>';
+        const twoPassMessages = [{ role: 'user', content: 'continue the scene' }];
+        const twoPassPayload = {
+            type: 'normal',
+            chat_completion_source: 'vertexai',
+            model: 'gemini-3.6-flash',
+            messages: twoPassMessages,
+        };
+
+        await handlers.get(eventTypes.CHAT_COMPLETION_SETTINGS_READY)[0](twoPassPayload);
+
+        assert.equal(generateRawCalls.length, 1);
+        assert.equal(generateRawCalls[0].responseLength, 512);
+        assert.equal(generateRawCalls[0].trimNames, false);
+        assert.match(generateRawCalls[0].systemPrompt, /unfinished opening/i);
+        assert.match(generateRawCalls[0].prompt.at(-1).content, /<think>/);
+        assert.deepEqual(twoPassMessages, [{ role: 'user', content: 'continue the scene' }]);
+        assert.deepEqual(
+            twoPassPayload.json_schema.value.properties.prefix.enum,
+            ['<think>consider the scene carefully</think>\n'],
+        );
     } finally {
         for (const [name, original] of originalGlobals) {
             if (original.exists) {
