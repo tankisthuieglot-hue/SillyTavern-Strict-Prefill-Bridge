@@ -16,6 +16,7 @@ let streamObserver = null;
 let observedMessageId = -1;
 let renderFrame = null;
 let stopCleanupTimer = null;
+let twoPassGeneratorActive = false;
 
 export function getSettings() {
     const { extensionSettings } = SillyTavern.getContext();
@@ -145,13 +146,51 @@ async function generateTwoPassPrefix(payload, settings) {
         content: `The exact required prefix is:\n---BEGIN PREFIX---\n${prefix}\n---END PREFIX---\nGenerate only the text that must immediately follow it.`,
     });
 
-    const generated = String(await SillyTavern.getContext().generateRaw({
-        prompt,
-        systemPrompt: PREFILL_GENERATOR_SYSTEM_PROMPT,
-        responseLength: PREFILL_GENERATOR_TOKENS,
-        trimNames: false,
-    }) ?? '');
+    let data;
+    twoPassGeneratorActive = true;
+    try {
+        data = await SillyTavern.getContext().generateRawData({
+            prompt,
+            systemPrompt: PREFILL_GENERATOR_SYSTEM_PROMPT,
+            responseLength: PREFILL_GENERATOR_TOKENS,
+        });
+    } finally {
+        twoPassGeneratorActive = false;
+    }
 
+    const messageContent = data?.choices?.[0]?.message?.content
+        ?? data?.choices?.[0]?.text
+        ?? data?.text
+        ?? '';
+    const visibleText = typeof messageContent === 'string'
+        ? messageContent
+        : Array.isArray(messageContent)
+            ? messageContent.map(part => typeof part === 'string' ? part : part?.text ?? '').join('')
+            : '';
+    const reasoningText = data?.responseContent?.parts
+        ?.filter(part => part?.thought && typeof part.text === 'string')
+        .map(part => part.text)
+        .join('\n\n')
+        || data?.choices?.[0]?.message?.reasoning_content
+        || data?.choices?.[0]?.message?.reasoning
+        || '';
+
+    const openingTag = /<([A-Za-z][\w:-]*)[^>]*>\s*$/.exec(prefix);
+    if (openingTag) {
+        const closingTag = `</${openingTag[1]}>`;
+        let body = String(reasoningText || visibleText || '');
+        if (body.startsWith(prefix)) {
+            body = body.slice(prefix.length);
+        }
+        const closingIndex = body.indexOf(closingTag);
+        if (closingIndex >= 0) {
+            body = body.slice(0, closingIndex);
+        }
+        body = body.trim();
+        return body ? `${prefix}${body}${closingTag}\n` : '';
+    }
+
+    const generated = String(reasoningText || visibleText || '');
     return generated.startsWith(prefix) ? generated : prefix + generated;
 }
 
@@ -210,6 +249,11 @@ function ensureStreamObserver() {
 }
 
 async function onSettingsReady(payload) {
+    if (twoPassGeneratorActive && String(payload?.type ?? '').toLowerCase() === 'quiet') {
+        payload.include_reasoning = true;
+        return;
+    }
+
     clearStopCleanup();
     disconnectStreamObserver();
     const settings = getSettings();
@@ -222,6 +266,10 @@ async function onSettingsReady(payload) {
             console.warn(`[${MODULE_NAME}] Two-pass prefill generator failed:`, error);
             toastr.warning('Предварительный CoT не сгенерирован. Используется обычный строгий префилл.', 'Strict Prefill Bridge');
         }
+    }
+
+    if (generatedPrefix) {
+        payload.include_reasoning = false;
     }
 
     controller.onSettingsReady(payload, { generatedPrefix });

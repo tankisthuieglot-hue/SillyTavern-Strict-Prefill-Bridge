@@ -126,9 +126,26 @@ test('browser entrypoint injects Gemini schema through the existing SillyTavern 
             savedSettings += 1;
         },
         updateMessageBlock: () => undefined,
-        generateRaw: async options => {
+        generateRawData: async options => {
             generateRawCalls.push(structuredClone(options));
-            return 'consider the scene carefully</think>\n';
+            const quietPayload = {
+                type: 'quiet',
+                chat_completion_source: 'vertexai',
+                model: 'gemini-3.6-flash',
+                messages: options.prompt,
+                include_reasoning: false,
+            };
+            await handlers.get(eventTypes.CHAT_COMPLETION_SETTINGS_READY)[0](quietPayload);
+            assert.equal(quietPayload.include_reasoning, true);
+            return {
+                choices: [{ message: { content: '</think>\n' } }],
+                responseContent: {
+                    parts: [
+                        { thought: true, text: 'consider the scene carefully' },
+                        { thought: false, text: '</think>\n' },
+                    ],
+                },
+            };
         },
     };
 
@@ -211,7 +228,6 @@ test('browser entrypoint injects Gemini schema through the existing SillyTavern 
 
         assert.equal(generateRawCalls.length, 1);
         assert.equal(generateRawCalls[0].responseLength, 512);
-        assert.equal(generateRawCalls[0].trimNames, false);
         assert.match(generateRawCalls[0].systemPrompt, /unfinished opening/i);
         assert.match(generateRawCalls[0].prompt.at(-1).content, /<think>/);
         assert.deepEqual(twoPassMessages, [{ role: 'user', content: 'continue the scene' }]);
@@ -219,6 +235,7 @@ test('browser entrypoint injects Gemini schema through the existing SillyTavern 
             twoPassPayload.json_schema.value.properties.prefix.enum,
             ['<think>consider the scene carefully</think>\n'],
         );
+        assert.equal(twoPassPayload.include_reasoning, false);
     } finally {
         for (const [name, original] of originalGlobals) {
             if (original.exists) {
