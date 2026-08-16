@@ -19,16 +19,43 @@
             <label class="checkbox_label strict-prefill-toggle" for="strict-prefill-enabled">
                 <input id="strict-prefill-enabled" type="checkbox" class="checkbox">
                 <span>
-                    <strong>Добавлять строгий префилл</strong>
-                    <small>Начинать каждый новый ответ с указанного текста.</small>
+                    <strong>Включить расширение</strong>
+                    <small>Управляет всеми режимами ниже.</small>
                 </span>
             </label>
 
             <div class="strict-prefill-field">
-                <label for="strict-prefill-prefix">Текст в начале ответа</label>
+                <label for="strict-prefill-mode">Режим работы</label>
+                <select id="strict-prefill-mode" class="text_pole">
+                    <option value="two-pass">Двухпроходный CoT (рекомендуется для Gemini 3.6+)</option>
+                    <option value="schema-only">Только строгий префилл (один запрос)</option>
+                </select>
+                <small>
+                    Двухпроходный: первый скрытый запрос заполняет ваш CoT-шаблон по шагам, второй пишет ответ, отталкиваясь от готового рассуждения. Блок сохраняется в сообщении как &lt;think&gt;…&lt;/think&gt;. Использует два API-запроса. Работает для Normal, Regenerate и Swipe (не Continue).
+                </small>
+            </div>
+
+            <div class="strict-prefill-field">
+                <label for="strict-prefill-prefix">Открывающий тег CoT</label>
                 <textarea id="strict-prefill-prefix" rows="5" spellcheck="false" class="text_pole" placeholder="&lt;think&gt;"></textarea>
                 <small>
-                    Normal, Regenerate, Swipe и Continue получают новый префилл.
+                    В двухпроходном режиме — тег, которым начинается блок рассуждения (закрывающий выводится автоматически). В режиме «только префилл» — текст, которым принудительно начинается ответ.
+                </small>
+            </div>
+
+            <div class="strict-prefill-field">
+                <label for="strict-prefill-cot-tokens">Лимит токенов на CoT-запрос</label>
+                <input id="strict-prefill-cot-tokens" type="number" min="1024" max="65536" step="512" class="text_pole" inputmode="numeric">
+                <small>
+                    Максимальный размер ответа в первом (скрытом) запросе двухпроходного режима. Для больших шаблонов вроде Emotionalism CoT держите 16384 и выше; если блок обрывается на середине — увеличьте.
+                </small>
+            </div>
+
+            <div class="strict-prefill-field">
+                <label for="strict-prefill-answer-prefix">Принудительное начало ответа (необязательно)</label>
+                <input id="strict-prefill-answer-prefix" type="text" spellcheck="false" class="text_pole" placeholder="например, npc_list">
+                <small>
+                    Только для двухпроходного режима: заставить финальный ответ начинаться с этого текста через JSON Schema. Пусто — ответ начинается как решит модель. При заполнении кавычки в HTML-трекерах кодируются автоматически.
                 </small>
             </div>
 
@@ -36,26 +63,18 @@
                 <label for="strict-prefill-minimum-content">Минимум символов после префилла (Gemini)</label>
                 <input id="strict-prefill-minimum-content" type="number" min="0" max="200000" step="500" class="text_pole" inputmode="numeric">
                 <small>
-                    0 — без ограничения. Если Gemini слишком рано закрывает длинный трекер, попробуйте 16000–24000. В двухшаговом режиме минимум считается после сгенерированного CoT-блока. Лимит токенов основного ответа и уровень мышления не меняются.
+                    0 — без ограничения. Анти-лень: применяется и к скрытому CoT-запросу, и к ответу с принудительным началом. Если модель заполняет шаблон одной строкой на шаг — поставьте 8000–16000. Лимит токенов и уровень мышления не меняются.
                 </small>
             </div>
 
-            <label class="checkbox_label strict-prefill-toggle" for="strict-prefill-first-cot">
-                <input id="strict-prefill-first-cot" type="checkbox" class="checkbox">
-                <span>
-                    <strong>Двухшаговый CoT (экспериментально)</strong>
-                    <small>Первый скрытый запрос возвращает нативное thinking, из которого собирается блок до 512 токенов, например &lt;think&gt;…&lt;/think&gt;. Затем весь блок становится обязательным началом основного ответа через JSON Schema. У второго запроса нативная сводка скрыта, но внутреннее мышление не отключается. Использует два API-запроса; должны быть включены обе галочки.</small>
-                </span>
-            </label>
-
             <div class="strict-prefill-note">
                 <i class="fa-solid fa-brackets-curly" aria-hidden="true"></i>
-                <span>Обычный режим закрепляет только введённый префилл через Structured Outputs / JSON Schema. Двухшаговый CoT сначала создаёт содержимое префилла отдельной генерацией, затем Schema заставляет основную модель воспроизвести весь блок и продолжить ответ.</span>
+                <span>Настоящий префилл удалён из Gemini API начиная с 3.6 — расширение эмулирует его: двухпроходный режим генерирует заполненный CoT-блок отдельным запросом и обусловливает им основной ответ. Провайдер, ключи и уровень мышления берутся из текущих настроек SillyTavern.</span>
             </div>
 
             <div class="strict-prefill-note">
                 <i class="fa-solid fa-key" aria-hidden="true"></i>
-                <span>Провайдер, ключи и уровень мышления берутся из текущих настроек SillyTavern.</span>
+                <span>Для Gemini рекомендуется выключить стриминг (как и в самих пресетах). Расширение не читает ключи и не обращается к внешнему серверу.</span>
             </div>
 
             <a class="strict-prefill-community" href="https://discord.gg/xKhu72AqHT" target="_blank" rel="noopener noreferrer">

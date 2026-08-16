@@ -46,47 +46,74 @@ test('Gemini normal generation receives enum schema without changing prompt or t
     assert.equal(controller.getSnapshot().mode, 'split-enum');
 });
 
-test('two-pass mode enforces the generated thinking block through Gemini schema', () => {
-    const { controller } = makeHarness({
-        settings: {
-            enabled: true,
-            prefix: '<think>',
-            prefillFirstCot: true,
-        },
-    });
+test('two-pass mode conditions the main request on the completed think block', () => {
+    const { controller } = makeHarness();
     const payload = {
         type: 'normal',
         chat_completion_source: 'makersuite',
-        model: 'gemini-3.1-pro',
+        model: 'gemini-3.6-flash',
         reasoning_effort: 'max',
         include_reasoning: true,
-        thinkingLevel: 'high',
         max_tokens: 30000,
+        assistant_prefill: '<think>',
         messages: [{ role: 'user', content: 'hello' }],
     };
 
     assert.equal(controller.onSettingsReady(payload, {
-        generatedPrefix: '<think>plan\nstep</think>\n',
+        generatedThinkBlock: '<think>plan\nstep</think>',
     }), true);
-    assert.deepEqual(payload.messages, [{ role: 'user', content: 'hello' }]);
-    assert.deepEqual(payload.json_schema.value.properties.prefix.enum, ['<think>plan\nstep</think>\n']);
-    assert.equal(controller.getSnapshot().mode, 'split-enum');
-    assert.equal(
-        controller.onStream('{"prefix":"<think>plan\\nstep</think>\\n","content":"answer"}'),
-        '<think>plan\nstep</think>\nanswer',
-    );
+    assert.equal(payload.messages.length, 3);
+    assert.deepEqual(payload.messages[0], { role: 'user', content: 'hello' });
+    assert.deepEqual(payload.messages[1], { role: 'assistant', content: '<think>plan\nstep</think>' });
+    assert.equal(payload.messages[2].role, 'user');
+    assert.match(payload.messages[2].content, /\[System\].*completed thinking/is);
+    assert.equal(payload.json_schema, undefined);
+    assert.equal(payload.assistant_prefill, undefined);
+    assert.equal(payload.include_reasoning, false);
     assert.equal(payload.reasoning_effort, 'max');
-    assert.equal(payload.include_reasoning, true);
-    assert.equal(payload.thinkingLevel, 'high');
     assert.equal(payload.max_tokens, 30000);
+    assert.equal(controller.getSnapshot().twoPass, true);
+    assert.equal(controller.getSnapshot().thinkBlock, '<think>plan\nstep</think>');
+
+    assert.equal(
+        controller.onStream('npc_list refreshed.'),
+        '<think>plan\nstep</think>\nnpc_list refreshed.',
+    );
 });
 
-test('two-pass mode enforces the generated prefix on OpenRouter too', () => {
+test('two-pass mode optionally forces the answer start through the schema', () => {
+    const { controller } = makeHarness({
+        settings: {
+            enabled: true,
+            prefix: '<think>',
+            answerPrefix: 'npc_list',
+        },
+    });
+    const payload = {
+        type: 'swipe',
+        chat_completion_source: 'vertexai',
+        model: 'gemini-3.6-flash',
+        messages: [{ role: 'user', content: 'hello' }],
+    };
+
+    assert.equal(controller.onSettingsReady(payload, {
+        generatedThinkBlock: '<think>recount the scene</think>',
+    }), true);
+    assert.deepEqual(payload.json_schema.value.properties.prefix.enum, ['npc_list']);
+    assert.equal(payload.include_reasoning, false);
+    assert.equal(payload.messages.length, 3);
+
+    assert.equal(
+        controller.onStream('{"prefix":"npc_list","content":" ready"}'),
+        '<think>recount the scene</think>\nnpc_list ready',
+    );
+});
+
+test('two-pass mode works on regex providers without a schema when no answer prefix is set', () => {
     const { controller } = makeHarness({
         settings: {
             enabled: true,
             prefix: '<thinking>',
-            prefillFirstCot: true,
         },
     });
     const payload = {
@@ -98,32 +125,26 @@ test('two-pass mode enforces the generated prefix on OpenRouter too', () => {
     };
 
     assert.equal(controller.onSettingsReady(payload, {
-        generatedPrefix: '<thinking>draft</thinking>\n',
+        generatedThinkBlock: '<thinking>draft</thinking>',
     }), true);
-    assert.deepEqual(payload.messages, [{ role: 'user', content: 'hello' }]);
+    assert.equal(payload.messages.length, 3);
+    assert.equal(payload.messages[1].role, 'assistant');
+    assert.equal(payload.json_schema, undefined);
     assert.equal(payload.assistant_prefill, undefined);
-    assert.match(payload.json_schema.value.properties.response.pattern, /draft/);
     assert.equal(
-        controller.onStream('{"response":"<thinking>draft</thinking>\\nanswer"}'),
-        '<thinking>draft</thinking>\nanswer',
+        controller.onStream('the answer'),
+        '<thinking>draft</thinking>\nthe answer',
     );
 });
 
-test('two-pass Continue appends a newly generated thinking block to the current message', () => {
+test('two-pass Continue ignores the generated block and falls back to a fresh prefix', () => {
     const chat = [{
         is_user: false,
         mes: 'The lantern went dark.',
         swipe_id: 0,
         swipes: ['The lantern went dark.'],
     }];
-    const { controller } = makeHarness({
-        chat,
-        settings: {
-            enabled: true,
-            prefix: '<think>',
-            prefillFirstCot: true,
-        },
-    });
+    const { controller } = makeHarness({ chat });
     const payload = {
         type: 'continue',
         chat_completion_source: 'vertexai',
@@ -132,12 +153,14 @@ test('two-pass Continue appends a newly generated thinking block to the current 
     };
 
     assert.equal(controller.onSettingsReady(payload, {
-        generatedPrefix: '<think>listen for danger</think>\n',
+        generatedThinkBlock: '<think>listen for danger</think>\n',
     }), true);
     assert.deepEqual(payload.messages, [{ role: 'assistant', content: 'The lantern went dark.' }]);
+    assert.deepEqual(payload.json_schema.value.properties.prefix.enum, ['<think>']);
+    assert.equal(controller.getSnapshot().twoPass, false);
     assert.equal(
-        controller.onStream('{"prefix":"<think>listen for danger</think>\\n","content":" Then footsteps followed."}'),
-        'The lantern went dark.<think>listen for danger</think>\n Then footsteps followed.',
+        controller.onStream('{"prefix":"<think>","content":" Then footsteps followed."}'),
+        'The lantern went dark.<think> Then footsteps followed.',
     );
 });
 
@@ -332,4 +355,26 @@ test('a malformed or prefix-violating response is never applied as chat text', (
 
     assert.equal(controller.onMessageReceived(0), null);
     assert.deepEqual(calls.renders, []);
+});
+
+test('two-pass final message stores the think block together with the answer', () => {
+    const chat = [{
+        is_user: false,
+        mes: 'She turned to the door.',
+        swipe_id: 0,
+        swipes: ['She turned to the door.'],
+    }];
+    const { calls, controller } = makeHarness({ chat });
+    controller.onSettingsReady({
+        type: 'normal',
+        chat_completion_source: 'makersuite',
+        model: 'gemini-3.6-flash',
+        messages: [{ role: 'user', content: 'hello' }],
+    }, { generatedThinkBlock: '<think>{1} checked the room</think>' });
+
+    assert.equal(controller.onMessageReceived(0), '<think>{1} checked the room</think>\nShe turned to the door.');
+    assert.equal(chat[0].mes, '<think>{1} checked the room</think>\nShe turned to the door.');
+    assert.equal(chat[0].swipes[0], '<think>{1} checked the room</think>\nShe turned to the door.');
+    assert.deepEqual(calls.renders, [{ messageId: 0, text: '<think>{1} checked the room</think>\nShe turned to the door.' }]);
+    assert.equal(controller.getSnapshot().active, false);
 });

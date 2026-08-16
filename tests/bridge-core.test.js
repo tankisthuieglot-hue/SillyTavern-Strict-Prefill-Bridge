@@ -2,9 +2,15 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
+    buildCotInstruction,
+    buildNudgeInstruction,
     buildStructuredSchema,
+    deriveEnderTag,
+    finalizeThinkBlock,
     getProviderMode,
     isEligibleGenerationType,
+    normalizeCotResponseTokens,
+    normalizeMode,
     normalizePrefix,
     unwrapStructuredOutput,
 } from '../src/bridge-core.js';
@@ -110,5 +116,71 @@ test('only visible assistant generations are eligible and prefix text stays exac
         assert.equal(isEligibleGenerationType(type), false);
     }
 
-    assert.equal(normalizePrefix('  <thinking>\nплан: 🧪\n'), '  <thinking>\nплан: 🧪\n');
+    assert.equal(normalizePrefix('  <thinking>\nплан: 🧠\n'), '  <thinking>\nплан: 🧠\n');
+});
+
+test('ender tags are derived only from complete opening tags', () => {
+    assert.equal(deriveEnderTag('<think>'), '</think>');
+    assert.equal(deriveEnderTag('<thinking>'), '</thinking>');
+    assert.equal(deriveEnderTag('<plan attr="x">'), '</plan>');
+    assert.equal(deriveEnderTag('Plan: '), '');
+    assert.equal(deriveEnderTag(''), '');
+});
+
+test('mode and CoT token settings are normalized with safe bounds', () => {
+    assert.equal(normalizeMode('two-pass'), 'two-pass');
+    assert.equal(normalizeMode('schema-only'), 'schema-only');
+    assert.equal(normalizeMode(undefined), 'two-pass');
+    assert.equal(normalizeMode('garbage'), 'two-pass');
+
+    assert.equal(normalizeCotResponseTokens('8192'), 8192);
+    assert.equal(normalizeCotResponseTokens(512), 1024);
+    assert.equal(normalizeCotResponseTokens(1000000), 65536);
+    assert.equal(normalizeCotResponseTokens('abc'), 16384);
+});
+
+test('pass instructions reference the prefix, the closing tag, and the answer start', () => {
+    const cot = buildCotInstruction('<think>');
+    assert.match(cot, /<think>/);
+    assert.match(cot, /<\/think>/);
+    assert.match(cot, /without skipping, merging, or summarizing/i);
+    assert.match(cot, /terse one-line fill-ins/i);
+    assert.match(cot, /Stop immediately after/);
+
+    const plainNudge = buildNudgeInstruction('');
+    assert.match(plainNudge, /\[System\]/);
+    assert.doesNotMatch(plainNudge, /Begin the reply with/);
+
+    const forcedNudge = buildNudgeInstruction('npc_list');
+    assert.match(forcedNudge, /Begin the reply with: npc_list/);
+});
+
+test('finalizeThinkBlock turns pass-one output into a closed thinking block', () => {
+    assert.equal(
+        finalizeThinkBlock('{"prefix":"<think>","content":"{1} ok\\n{2} ok"}', '<think>'),
+        '<think>{1} ok\n{2} ok\n</think>',
+    );
+    assert.equal(
+        finalizeThinkBlock('```json\n{"prefix":"<think>","content":"{1} ok"}\n```', '<think>'),
+        '<think>{1} ok\n</think>',
+    );
+    assert.equal(
+        finalizeThinkBlock('<think>{1} surveyed the room', '<think>'),
+        '<think>{1} surveyed the room\n</think>',
+    );
+    assert.equal(
+        finalizeThinkBlock('<think>{1} ok</think>\nFinal answer leaks here', '<think>'),
+        '<think>{1} ok</think>',
+    );
+    assert.equal(
+        finalizeThinkBlock('{1} ok</think>', '<think>'),
+        '<think>\n{1} ok</think>',
+    );
+    assert.equal(
+        finalizeThinkBlock('Plan: inspect the door', 'Plan: '),
+        'Plan: inspect the door',
+    );
+    assert.equal(finalizeThinkBlock('', '<think>'), null);
+    assert.equal(finalizeThinkBlock(null, '<think>'), null);
+    assert.equal(finalizeThinkBlock('<think>   ', '<think>'), null);
 });

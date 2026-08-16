@@ -1,4 +1,6 @@
 import {
+    HTML_QUOTE_TOKEN,
+    buildNudgeInstruction,
     buildStructuredSchema,
     getProviderMode,
     isEligibleGenerationType,
@@ -17,6 +19,8 @@ function idleState() {
         generationType: '',
         trackedSwipeId: -1,
         htmlQuoteEncoding: false,
+        twoPass: false,
+        thinkBlock: '',
     };
 }
 
@@ -48,17 +52,13 @@ export function createBridgeController({ getContext, getSettings, notifyWarning 
         }
     }
 
-    function onSettingsReady(payload, { generatedPrefix = '' } = {}) {
+    function onSettingsReady(payload, { generatedThinkBlock = '' } = {}) {
         reset();
 
         const settings = getSettings();
         const configuredPrefix = normalizePrefix(settings?.prefix);
-        const twoPassPrefix = normalizePrefix(generatedPrefix);
-        const prefix = settings?.prefillFirstCot === true && twoPassPrefix.length > 0
-            ? twoPassPrefix
-            : configuredPrefix;
         const generationType = String(payload?.type ?? '').toLowerCase();
-        if (!payload || settings?.enabled !== true || prefix.length === 0 || !isEligibleGenerationType(generationType)) {
+        if (!payload || settings?.enabled !== true || configuredPrefix.length === 0 || !isEligibleGenerationType(generationType)) {
             return false;
         }
         if (payload.json_schema || (Array.isArray(payload.tools) && payload.tools.length > 0)) {
@@ -69,6 +69,41 @@ export function createBridgeController({ getContext, getSettings, notifyWarning 
         if (!providerMode) {
             warn(`Structured prefill is not available for the direct ${String(payload.chat_completion_source ?? 'unknown')} route in this SillyTavern version.`);
             return false;
+        }
+
+        const thinkBlock = normalizePrefix(generatedThinkBlock);
+        if (thinkBlock && generationType !== 'continue' && generationType !== 'quiet') {
+            const forcedAnswerPrefix = normalizePrefix(settings?.answerPrefix);
+            const htmlQuoteEncoding = Boolean(forcedAnswerPrefix)
+                && protectGoogleHtmlTrackerQuotes(payload.messages, payload.chat_completion_source);
+
+            payload.messages.push({ role: 'assistant', content: thinkBlock });
+            payload.messages.push({ role: 'user', content: buildNudgeInstruction(forcedAnswerPrefix) });
+            payload.include_reasoning = false;
+            delete payload.assistant_prefill;
+
+            if (forcedAnswerPrefix) {
+                payload.json_schema = buildStructuredSchema({
+                    source: payload.chat_completion_source,
+                    model: payload.model,
+                    prefix: forcedAnswerPrefix,
+                    minimumContentCharacters: settings?.minimumContentCharacters,
+                });
+            }
+
+            state = {
+                active: true,
+                mode: forcedAnswerPrefix ? providerMode : null,
+                expectedPrefix: forcedAnswerPrefix,
+                baseText: '',
+                latestRaw: '',
+                generationType,
+                trackedSwipeId: -1,
+                htmlQuoteEncoding,
+                twoPass: true,
+                thinkBlock,
+            };
+            return true;
         }
 
         let baseText = '';
@@ -90,7 +125,7 @@ export function createBridgeController({ getContext, getSettings, notifyWarning 
         payload.json_schema = buildStructuredSchema({
             source: payload.chat_completion_source,
             model: payload.model,
-            prefix,
+            prefix: configuredPrefix,
             minimumContentCharacters: settings?.minimumContentCharacters,
         });
         delete payload.assistant_prefill;
@@ -98,12 +133,14 @@ export function createBridgeController({ getContext, getSettings, notifyWarning 
         state = {
             active: true,
             mode: providerMode,
-            expectedPrefix: prefix,
+            expectedPrefix: configuredPrefix,
             baseText,
             latestRaw: '',
             generationType,
             trackedSwipeId,
             htmlQuoteEncoding,
+            twoPass: false,
+            thinkBlock: '',
         };
         return true;
     }
@@ -112,7 +149,22 @@ export function createBridgeController({ getContext, getSettings, notifyWarning 
         if (!state.active) {
             return null;
         }
-        return unwrapStructuredOutput(rawText, state);
+
+        const raw = String(rawText ?? '');
+
+        if (state.twoPass) {
+            let answer = state.mode ? unwrapStructuredOutput(raw, state) : raw;
+            if (typeof answer !== 'string') {
+                answer = raw;
+            }
+            let full = `${state.thinkBlock}\n${answer}`;
+            if (state.htmlQuoteEncoding) {
+                full = full.replaceAll(HTML_QUOTE_TOKEN, '"');
+            }
+            return full;
+        }
+
+        return unwrapStructuredOutput(raw, state);
     }
 
     function onStream(rawText) {

@@ -1,10 +1,10 @@
 {
-  "name": "sillytavern-strict-prefill-bridge",
-  "version": "0.7.1",
-  "private": true,
-  "type": "module",
-  "scripts": {
-    "test": "node --test tests/*.test.js",
-    "check": "node --test tests/*.test.js && node --check index.js && node --check src/bridge-core.js && node --check src/bridge-controller.js"
-  }
+    "name": "sillytavern-strict-prefill-bridge",
+    "version": "0.8.1",
+    "private": true,
+    "type": "module",
+    "scripts": {
+        "test": "node --test tests/*.test.js",
+        "check": "node --test tests/*.test.js && node --check index.js && node --check src/bridge-core.js && node --check src/bridge-controller.js"
+    }
 }

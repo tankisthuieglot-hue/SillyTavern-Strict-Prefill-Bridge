@@ -42,17 +42,22 @@ test('manifest installs as an event-driven SillyTavern 1.18 extension', async ()
     assert.equal(manifest.minimum_client_version, '1.18.0');
 });
 
-test('settings explain the structured-output mechanism and expose an exact-prefix control', async () => {
+test('settings explain the structured-output mechanism and expose mode and CoT controls', async () => {
     const settingsSource = await readProjectFile('settings.html');
 
     assert.match(settingsSource, /id="strict-prefill-settings"/);
     assert.match(settingsSource, /id="strict-prefill-enabled"[^>]*type="checkbox"/);
-    assert.match(settingsSource, /id="strict-prefill-first-cot"[^>]*type="checkbox"/);
+    assert.match(settingsSource, /<select id="strict-prefill-mode"[^>]*>/);
+    assert.match(settingsSource, /<\/select>/);
+    assert.match(settingsSource, /value="two-pass"/);
+    assert.match(settingsSource, /value="schema-only"/);
     assert.match(settingsSource, /<label[^>]*for="strict-prefill-prefix"/);
     assert.match(settingsSource, /id="strict-prefill-prefix"[^>]*rows="5"[^>]*spellcheck="false"/);
+    assert.match(settingsSource, /id="strict-prefill-cot-tokens"[^>]*type="number"/);
+    assert.match(settingsSource, /id="strict-prefill-answer-prefix"/);
     assert.match(settingsSource, /id="strict-prefill-minimum-content"[^>]*type="number"/);
     assert.match(settingsSource, /Structured Outputs|JSON Schema/);
-    assert.match(settingsSource, /Двухшаговый CoT/);
+    assert.match(settingsSource, /Двухпроходный CoT/);
     assert.match(settingsSource, /два API-запроса/i);
     assert.match(settingsSource, /Continue/);
 });
@@ -84,9 +89,11 @@ test('browser entrypoint injects Gemini schema through the existing SillyTavern 
     };
 
     const enabledControl = makeControl();
+    const modeControl = makeControl();
     const prefixControl = makeControl();
     const minimumContentControl = makeControl();
-    const prefillFirstCotControl = makeControl();
+    const cotTokensControl = makeControl();
+    const answerPrefixControl = makeControl();
     const previewControl = makeControl();
     const statusControl = makeControl();
     const settingsRoot = {};
@@ -99,9 +106,11 @@ test('browser entrypoint injects Gemini schema through the existing SillyTavern 
     const controls = new Map([
         ['strict-prefill-settings', settingsRoot],
         ['strict-prefill-enabled', enabledControl],
+        ['strict-prefill-mode', modeControl],
         ['strict-prefill-prefix', prefixControl],
         ['strict-prefill-minimum-content', minimumContentControl],
-        ['strict-prefill-first-cot', prefillFirstCotControl],
+        ['strict-prefill-cot-tokens', cotTokensControl],
+        ['strict-prefill-answer-prefix', answerPrefixControl],
         ['strict-prefill-preview', previewControl],
         ['strict-prefill-status', statusControl],
     ]);
@@ -116,16 +125,30 @@ test('browser entrypoint injects Gemini schema through the existing SillyTavern 
     };
     let savedSettings = 0;
     const generateRawCalls = [];
+    const renderedMessages = [];
     const context = {
         eventSource,
         eventTypes,
-        extensionSettings: {},
-        chat: [],
+        extensionSettings: {
+            strict_prefill_bridge: {
+                enabled: true,
+                mode: 'schema-only',
+                prefix: '<think>',
+            },
+        },
+        chat: [{
+            is_user: false,
+            mes: 'She turned to the door.',
+            swipe_id: 0,
+            swipes: ['She turned to the door.'],
+        }],
         renderExtensionTemplateAsync: async () => '<div id="strict-prefill-settings"></div>',
         saveSettingsDebounced: () => {
             savedSettings += 1;
         },
-        updateMessageBlock: () => undefined,
+        updateMessageBlock: (messageId, message) => {
+            renderedMessages.push({ messageId, text: message.mes });
+        },
         generateRawData: async options => {
             generateRawCalls.push(structuredClone(options));
             const quietPayload = {
@@ -137,15 +160,7 @@ test('browser entrypoint injects Gemini schema through the existing SillyTavern 
             };
             await handlers.get(eventTypes.CHAT_COMPLETION_SETTINGS_READY)[0](quietPayload);
             assert.equal(quietPayload.include_reasoning, true);
-            return {
-                choices: [{ message: { content: '</think>\n' } }],
-                responseContent: {
-                    parts: [
-                        { thought: true, text: 'consider the scene carefully' },
-                        { thought: false, text: '</think>\n' },
-                    ],
-                },
-            };
+            return '{"prefix":"<think>","content":"{1} surveyed the silent room\\n{2} counted the exits"}';
         },
     };
 
@@ -180,42 +195,55 @@ test('browser entrypoint injects Gemini schema through the existing SillyTavern 
             reasoning_effort: 'low',
             messages,
         };
-        handlers.get(eventTypes.CHAT_COMPLETION_SETTINGS_READY)[0](payload);
+        await handlers.get(eventTypes.CHAT_COMPLETION_SETTINGS_READY)[0](payload);
 
         assert.strictEqual(payload.messages, messages);
         assert.equal(payload.reasoning_effort, 'low');
         assert.deepEqual(payload.json_schema.value.properties.prefix.enum, ['<think>']);
         assert.deepEqual(context.extensionSettings.strict_prefill_bridge, {
             enabled: true,
+            mode: 'schema-only',
             prefix: '<think>',
             minimumContentCharacters: 0,
-            prefillFirstCot: false,
+            cotResponseTokens: 16384,
+            answerPrefix: '',
         });
 
         await handlers.get(eventTypes.APP_READY)[0]();
         assert.equal(enabledControl.checked, true);
+        assert.equal(modeControl.value, 'schema-only');
         assert.equal(prefixControl.value, '<think>');
         assert.equal(minimumContentControl.value, '0');
-        assert.equal(prefillFirstCotControl.checked, false);
+        assert.equal(cotTokensControl.value, '16384');
+        assert.equal(answerPrefixControl.value, '');
 
         enabledControl.checked = false;
         enabledControl.dispatch('change');
+        enabledControl.checked = true;
+        enabledControl.dispatch('change');
+        modeControl.value = 'two-pass';
+        modeControl.dispatch('change');
         prefixControl.value = '  <thinking>\nплан: 🧪\n';
         prefixControl.dispatch('input');
         minimumContentControl.value = '16000';
         minimumContentControl.dispatch('input');
-        prefillFirstCotControl.checked = true;
-        prefillFirstCotControl.dispatch('change');
+        cotTokensControl.value = '8192';
+        cotTokensControl.dispatch('input');
+        answerPrefixControl.value = 'npc_list';
+        answerPrefixControl.dispatch('input');
 
-        assert.equal(context.extensionSettings.strict_prefill_bridge.enabled, false);
+        assert.equal(context.extensionSettings.strict_prefill_bridge.enabled, true);
+        assert.equal(context.extensionSettings.strict_prefill_bridge.mode, 'two-pass');
         assert.equal(context.extensionSettings.strict_prefill_bridge.prefix, '  <thinking>\nплан: 🧪\n');
         assert.equal(context.extensionSettings.strict_prefill_bridge.minimumContentCharacters, 16000);
-        assert.equal(context.extensionSettings.strict_prefill_bridge.prefillFirstCot, true);
-        assert.equal(savedSettings, 4);
+        assert.equal(context.extensionSettings.strict_prefill_bridge.cotResponseTokens, 8192);
+        assert.equal(context.extensionSettings.strict_prefill_bridge.answerPrefix, 'npc_list');
+        assert.equal(savedSettings, 7);
         assert.equal(previewControl.textContent, '  <thinking>\nплан: 🧪\n');
 
         context.extensionSettings.strict_prefill_bridge.enabled = true;
         context.extensionSettings.strict_prefill_bridge.prefix = '<think>';
+        context.extensionSettings.strict_prefill_bridge.answerPrefix = '';
         const twoPassMessages = [{ role: 'user', content: 'continue the scene' }];
         const twoPassPayload = {
             type: 'normal',
@@ -227,15 +255,25 @@ test('browser entrypoint injects Gemini schema through the existing SillyTavern 
         await handlers.get(eventTypes.CHAT_COMPLETION_SETTINGS_READY)[0](twoPassPayload);
 
         assert.equal(generateRawCalls.length, 1);
-        assert.equal(generateRawCalls[0].responseLength, 512);
-        assert.match(generateRawCalls[0].systemPrompt, /unfinished opening/i);
-        assert.match(generateRawCalls[0].prompt.at(-1).content, /<think>/);
-        assert.deepEqual(twoPassMessages, [{ role: 'user', content: 'continue the scene' }]);
-        assert.deepEqual(
-            twoPassPayload.json_schema.value.properties.prefix.enum,
-            ['<think>consider the scene carefully</think>\n'],
-        );
+        assert.equal(generateRawCalls[0].responseLength, 8192);
+        assert.match(generateRawCalls[0].systemPrompt, /reasoning engine/i);
+        assert.match(generateRawCalls[0].prompt.at(-1).content, /Complete the thinking template/);
+        assert.deepEqual(generateRawCalls[0].jsonSchema.value.properties.prefix.enum, ['<think>']);
+
+        assert.equal(twoPassPayload.messages.length, 3);
+        assert.deepEqual(twoPassMessages, twoPassPayload.messages);
+        assert.equal(twoPassPayload.messages[1].role, 'assistant');
+        assert.equal(twoPassPayload.messages[1].content, '<think>{1} surveyed the silent room\n{2} counted the exits\n</think>');
+        assert.equal(twoPassPayload.messages[2].role, 'user');
+        assert.equal(twoPassPayload.json_schema, undefined);
         assert.equal(twoPassPayload.include_reasoning, false);
+
+        await handlers.get(eventTypes.MESSAGE_RECEIVED)[0](0);
+        assert.equal(
+            context.chat[0].mes,
+            '<think>{1} surveyed the silent room\n{2} counted the exits\n</think>\nShe turned to the door.',
+        );
+        assert.equal(renderedMessages.at(-1).text, context.chat[0].mes);
     } finally {
         for (const [name, original] of originalGlobals) {
             if (original.exists) {

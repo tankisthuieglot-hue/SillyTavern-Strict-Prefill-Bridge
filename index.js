@@ -1,16 +1,21 @@
 import {
     DEFAULT_SETTINGS,
+    HTML_QUOTE_TOKEN,
+    buildCotInstruction,
+    buildStructuredSchema,
+    finalizeThinkBlock,
     getProviderMode,
     isEligibleGenerationType,
+    normalizeCotResponseTokens,
     normalizeMinimumContentCharacters,
+    normalizeMode,
     normalizePrefix,
 } from './src/bridge-core.js';
 import { createBridgeController } from './src/bridge-controller.js';
 
 const MODULE_NAME = 'strict_prefill_bridge';
 const EXTENSION_FOLDER = decodeURIComponent(new URL('.', import.meta.url).pathname.split('/').filter(Boolean).at(-1));
-const PREFILL_GENERATOR_TOKENS = 512;
-const PREFILL_GENERATOR_SYSTEM_PROMPT = `You generate the unfinished opening of an assistant response. Use the supplied conversation as context. Return only text that continues the exact required prefix, without repeating that prefix or adding a preamble. If the prefix ends with an opening tag or incomplete structure, write substantial, context-specific planning inside it, close the structure, and stop immediately after it. Do not write the final answer outside that structure. For a plain-text prefix, produce a substantial continuation that gives the main model a strong starting direction.`;
+const COT_ENGINE_SYSTEM_PROMPT = 'You are a reasoning engine for a roleplay assistant. Your only job is to complete the required thinking template from the conversation instructions: fill every numbered step in order, one step at a time, without skipping, merging, or summarizing steps — and at the depth each step demands. Where the template requires detailed analysis, multi-paragraph reasoning, or verbose checks, you produce them in full; terse one-line fill-ins are a failure mode, not compliance. The thinking must be concrete and specific to the current scene: names, positions, motivations, knowledge states, sensory details, causes. You never write the final reply itself and never add commentary outside the required block.';
 
 let streamObserver = null;
 let observedMessageId = -1;
@@ -25,27 +30,35 @@ export function getSettings() {
     for (const [key, value] of Object.entries(DEFAULT_SETTINGS)) {
         extensionSettings[MODULE_NAME][key] ??= value;
     }
+    if (extensionSettings[MODULE_NAME].prefillFirstCot === true && extensionSettings[MODULE_NAME].mode === undefined) {
+        extensionSettings[MODULE_NAME].mode = 'two-pass';
+    }
+    extensionSettings[MODULE_NAME].mode = normalizeMode(extensionSettings[MODULE_NAME].mode);
 
     return extensionSettings[MODULE_NAME];
 }
 
-function updatePreview(enabledControl, prefixControl, previewControl, statusControl) {
+function updatePreview(enabledControl, modeControl, prefixControl, previewControl, statusControl) {
     previewControl.textContent = prefixControl.value || '∅';
 
     if (!enabledControl.checked) {
         statusControl.textContent = 'Выключен';
     } else if (prefixControl.value.length === 0) {
         statusControl.textContent = 'Пустой префилл';
+    } else if (modeControl.value === 'two-pass') {
+        statusControl.textContent = 'Двухпроходный CoT';
     } else {
-        statusControl.textContent = 'Включён';
+        statusControl.textContent = 'Только префилл';
     }
 }
 
-export function updateSettingsFromControls(settings, enabledControl, prefixControl, minimumContentControl, prefillFirstCotControl, saveSettings) {
-    settings.enabled = enabledControl.checked;
-    settings.prefix = prefixControl.value;
-    settings.minimumContentCharacters = normalizeMinimumContentCharacters(minimumContentControl.value);
-    settings.prefillFirstCot = prefillFirstCotControl.checked;
+export function updateSettingsFromControls(settings, controls, saveSettings) {
+    settings.enabled = controls.enabledControl.checked;
+    settings.mode = normalizeMode(controls.modeControl.value);
+    settings.prefix = controls.prefixControl.value;
+    settings.minimumContentCharacters = normalizeMinimumContentCharacters(controls.minimumContentControl.value);
+    settings.cotResponseTokens = normalizeCotResponseTokens(controls.cotTokensControl.value);
+    settings.answerPrefix = controls.answerPrefixControl.value;
     saveSettings();
 }
 
@@ -63,34 +76,46 @@ export async function initializeSettingsUi() {
 
     settingsContainer.insertAdjacentHTML('beforeend', html);
 
-    const enabledControl = document.getElementById('strict-prefill-enabled');
-    const prefixControl = document.getElementById('strict-prefill-prefix');
-    const minimumContentControl = document.getElementById('strict-prefill-minimum-content');
-    const prefillFirstCotControl = document.getElementById('strict-prefill-first-cot');
-    const previewControl = document.getElementById('strict-prefill-preview');
-    const statusControl = document.getElementById('strict-prefill-status');
-    if (!enabledControl || !prefixControl || !minimumContentControl || !prefillFirstCotControl || !previewControl || !statusControl) {
-        return;
+    const controls = {
+        enabledControl: document.getElementById('strict-prefill-enabled'),
+        modeControl: document.getElementById('strict-prefill-mode'),
+        prefixControl: document.getElementById('strict-prefill-prefix'),
+        minimumContentControl: document.getElementById('strict-prefill-minimum-content'),
+        cotTokensControl: document.getElementById('strict-prefill-cot-tokens'),
+        answerPrefixControl: document.getElementById('strict-prefill-answer-prefix'),
+        previewControl: document.getElementById('strict-prefill-preview'),
+        statusControl: document.getElementById('strict-prefill-status'),
+    };
+    for (const control of Object.values(controls)) {
+        if (!control) {
+            return;
+        }
     }
 
     const settings = getSettings();
-    enabledControl.checked = settings.enabled === true;
-    prefixControl.value = typeof settings.prefix === 'string'
+    controls.enabledControl.checked = settings.enabled === true;
+    controls.modeControl.value = normalizeMode(settings.mode);
+    controls.prefixControl.value = typeof settings.prefix === 'string'
         ? settings.prefix
         : String(settings.prefix ?? '');
-    minimumContentControl.value = String(normalizeMinimumContentCharacters(settings.minimumContentCharacters));
-    prefillFirstCotControl.checked = settings.prefillFirstCot === true;
-    updatePreview(enabledControl, prefixControl, previewControl, statusControl);
+    controls.minimumContentControl.value = String(normalizeMinimumContentCharacters(settings.minimumContentCharacters));
+    controls.cotTokensControl.value = String(normalizeCotResponseTokens(settings.cotResponseTokens));
+    controls.answerPrefixControl.value = typeof settings.answerPrefix === 'string'
+        ? settings.answerPrefix
+        : '';
+    updatePreview(controls.enabledControl, controls.modeControl, controls.prefixControl, controls.previewControl, controls.statusControl);
 
     const persist = () => {
-        updateSettingsFromControls(settings, enabledControl, prefixControl, minimumContentControl, prefillFirstCotControl, context.saveSettingsDebounced);
-        updatePreview(enabledControl, prefixControl, previewControl, statusControl);
+        updateSettingsFromControls(settings, controls, context.saveSettingsDebounced);
+        updatePreview(controls.enabledControl, controls.modeControl, controls.prefixControl, controls.previewControl, controls.statusControl);
     };
 
-    enabledControl.addEventListener('change', persist);
-    prefixControl.addEventListener('input', persist);
-    minimumContentControl.addEventListener('input', persist);
-    prefillFirstCotControl.addEventListener('change', persist);
+    controls.enabledControl.addEventListener('change', persist);
+    controls.modeControl.addEventListener('change', persist);
+    controls.prefixControl.addEventListener('input', persist);
+    controls.minimumContentControl.addEventListener('input', persist);
+    controls.cotTokensControl.addEventListener('input', persist);
+    controls.answerPrefixControl.addEventListener('input', persist);
 }
 
 const controller = createBridgeController({
@@ -121,20 +146,20 @@ function clearStopCleanup() {
     }
 }
 
-function shouldGenerateTwoPassPrefix(payload, settings) {
+function shouldRunTwoPassCoT(payload, settings) {
     const generationType = String(payload?.type ?? '').toLowerCase();
     return settings?.enabled === true
-        && settings?.prefillFirstCot === true
+        && normalizeMode(settings?.mode) === 'two-pass'
         && normalizePrefix(settings?.prefix).length > 0
-        && isEligibleGenerationType(generationType)
+        && ['normal', 'regenerate', 'swipe'].includes(generationType)
         && !payload?.json_schema
         && !(Array.isArray(payload?.tools) && payload.tools.length > 0)
         && Array.isArray(payload?.messages)
         && Boolean(getProviderMode(payload?.chat_completion_source, payload?.model));
 }
 
-async function generateTwoPassPrefix(payload, settings) {
-    const prefix = normalizePrefix(settings?.prefix);
+async function runTwoPassCoT(payload, settings) {
+    const prefix = normalizePrefix(settings.prefix);
     const prompt = payload.messages.map(message => ({
         ...message,
         content: Array.isArray(message?.content)
@@ -143,7 +168,7 @@ async function generateTwoPassPrefix(payload, settings) {
     }));
     prompt.push({
         role: 'user',
-        content: `The exact required prefix is:\n---BEGIN PREFIX---\n${prefix}\n---END PREFIX---\nGenerate only the text that must immediately follow it.`,
+        content: buildCotInstruction(prefix),
     });
 
     let data;
@@ -151,47 +176,38 @@ async function generateTwoPassPrefix(payload, settings) {
     try {
         data = await SillyTavern.getContext().generateRawData({
             prompt,
-            systemPrompt: PREFILL_GENERATOR_SYSTEM_PROMPT,
-            responseLength: PREFILL_GENERATOR_TOKENS,
+            systemPrompt: COT_ENGINE_SYSTEM_PROMPT,
+            responseLength: normalizeCotResponseTokens(settings.cotResponseTokens),
+            jsonSchema: buildStructuredSchema({
+                source: payload.chat_completion_source,
+                model: payload.model,
+                prefix,
+                minimumContentCharacters: settings?.minimumContentCharacters,
+            }),
         });
     } finally {
         twoPassGeneratorActive = false;
     }
 
-    const messageContent = data?.choices?.[0]?.message?.content
-        ?? data?.choices?.[0]?.text
-        ?? data?.text
-        ?? '';
-    const visibleText = typeof messageContent === 'string'
-        ? messageContent
-        : Array.isArray(messageContent)
-            ? messageContent.map(part => typeof part === 'string' ? part : part?.text ?? '').join('')
-            : '';
-    const reasoningText = data?.responseContent?.parts
-        ?.filter(part => part?.thought && typeof part.text === 'string')
-        .map(part => part.text)
-        .join('\n\n')
-        || data?.choices?.[0]?.message?.reasoning_content
-        || data?.choices?.[0]?.message?.reasoning
-        || '';
+    const rawText = typeof data === 'string'
+        ? data
+        : data?.choices?.[0]?.message?.content
+            ?? data?.choices?.[0]?.text
+            ?? data?.text
+            ?? '';
 
-    const openingTag = /<([A-Za-z][\w:-]*)[^>]*>\s*$/.exec(prefix);
-    if (openingTag) {
-        const closingTag = `</${openingTag[1]}>`;
-        let body = String(reasoningText || visibleText || '');
-        if (body.startsWith(prefix)) {
-            body = body.slice(prefix.length);
-        }
-        const closingIndex = body.indexOf(closingTag);
-        if (closingIndex >= 0) {
-            body = body.slice(0, closingIndex);
-        }
-        body = body.trim();
-        return body ? `${prefix}${body}${closingTag}\n` : '';
+    const thinkBlock = finalizeThinkBlock(visibleTextOf(rawText), prefix);
+    return thinkBlock ? thinkBlock.replaceAll(HTML_QUOTE_TOKEN, '"') : '';
+}
+
+function visibleTextOf(value) {
+    if (typeof value === 'string') {
+        return value;
     }
-
-    const generated = String(reasoningText || visibleText || '');
-    return generated.startsWith(prefix) ? generated : prefix + generated;
+    if (Array.isArray(value)) {
+        return value.map(part => typeof part === 'string' ? part : part?.text ?? '').join('');
+    }
+    return String(value ?? '');
 }
 
 function domContainsStructuredJson(messageId) {
@@ -257,22 +273,20 @@ async function onSettingsReady(payload) {
     clearStopCleanup();
     disconnectStreamObserver();
     const settings = getSettings();
-    let generatedPrefix = '';
+    let generatedThinkBlock = '';
 
-    if (shouldGenerateTwoPassPrefix(payload, settings)) {
+    if (shouldRunTwoPassCoT(payload, settings)) {
         try {
-            generatedPrefix = await generateTwoPassPrefix(payload, settings);
+            generatedThinkBlock = await runTwoPassCoT(payload, settings);
         } catch (error) {
-            console.warn(`[${MODULE_NAME}] Two-pass prefill generator failed:`, error);
-            toastr.warning('Предварительный CoT не сгенерирован. Используется обычный строгий префилл.', 'Strict Prefill Bridge');
+            console.warn(`[${MODULE_NAME}] Two-pass CoT generator failed:`, error);
+        }
+        if (!generatedThinkBlock) {
+            toastr.warning('CoT-запрос не удался. Ответ будет сгенерирован с обычным строгим префиллом.', 'Strict Prefill Bridge');
         }
     }
 
-    if (generatedPrefix) {
-        payload.include_reasoning = false;
-    }
-
-    controller.onSettingsReady(payload, { generatedPrefix });
+    controller.onSettingsReady(payload, { generatedThinkBlock });
 }
 
 function onStreamToken(rawText) {

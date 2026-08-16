@@ -1,8 +1,10 @@
 export const DEFAULT_SETTINGS = Object.freeze({
     enabled: true,
+    mode: 'two-pass',
     prefix: '<think>',
     minimumContentCharacters: 0,
-    prefillFirstCot: false,
+    cotResponseTokens: 16384,
+    answerPrefix: '',
 });
 
 export const HTML_QUOTE_TOKEN = '__SP_DQ__';
@@ -27,6 +29,33 @@ export function normalizePrefix(value) {
 export function normalizeMinimumContentCharacters(value) {
     const parsed = Number.parseInt(value, 10);
     return Number.isFinite(parsed) ? Math.max(0, Math.min(200000, parsed)) : 0;
+}
+
+export function normalizeMode(value) {
+    return value === 'schema-only' ? 'schema-only' : 'two-pass';
+}
+
+export function normalizeCotResponseTokens(value) {
+    const parsed = Number.parseInt(value, 10);
+    return Number.isFinite(parsed) ? Math.max(1024, Math.min(65536, parsed)) : 16384;
+}
+
+export function deriveEnderTag(prefix) {
+    const match = /<([A-Za-z][\w:-]*)[^>]*>\s*$/.exec(normalizePrefix(prefix));
+    return match ? `</${match[1]}>` : '';
+}
+
+export function buildCotInstruction(prefix) {
+    const exactPrefix = normalizePrefix(prefix);
+    const ender = deriveEnderTag(exactPrefix);
+    const closing = ender || 'the end of your thinking';
+    return `Complete the thinking template required by the conversation instructions for the reply the assistant must now write. Fill every step in order, one step at a time, without skipping, merging, or summarizing steps. Obey the depth the template itself demands: where it asks for analysis, paragraphs, or in-depth checks, write them in full — terse one-line fill-ins like "Done" or "Checks passed" are a FAILURE, not a completed step. Reason specifically about the current scene: names, positions, motivations, what each character knows and does not know, sensory details, causes and consequences. A step with genuinely nothing to note gets a dash and nothing more. Wrap the completed thinking exactly as: ${exactPrefix} filled steps ${ender}. Stop immediately after ${closing}. Do not write the final reply itself, do not add any commentary outside the block.`;
+}
+
+export function buildNudgeInstruction(answerPrefix) {
+    const forced = normalizePrefix(answerPrefix);
+    const start = forced ? ` Begin the reply with: ${forced}` : '';
+    return `[System] Your previous message contains your completed thinking block. Treat it as your own finished reasoning for this reply: follow its conclusions and every conversation rule. Write the final reply now. Do not open a new thinking block, do not repeat or summarize the reasoning, do not add meta commentary.${start}`;
 }
 
 function encodeHtmlTrackerQuotes(value) {
@@ -383,4 +412,50 @@ export function unwrapStructuredOutput(rawText, state) {
     }
 
     return typeof decoded === 'string' ? appendToContinuedMessage(decoded, state) : null;
+}
+
+export function finalizeThinkBlock(rawText, expectedPrefix) {
+    const prefix = normalizePrefix(expectedPrefix);
+    if (!prefix) {
+        return null;
+    }
+
+    const raw = String(rawText ?? '').trim();
+    if (!raw) {
+        return null;
+    }
+
+    let text = unwrapGeminiEnum(raw, prefix) ?? unwrapRegex(raw, prefix);
+    if (typeof text !== 'string') {
+        let candidate = raw;
+        const fenced = /^```[a-zA-Z]*\s*([\s\S]*?)\s*```$/.exec(candidate);
+        if (fenced) {
+            candidate = fenced[1].trim();
+        }
+        const prefixIndex = candidate.indexOf(prefix);
+        candidate = prefixIndex > 0 ? candidate.slice(prefixIndex) : candidate;
+        text = candidate;
+    }
+
+    if (!text) {
+        return null;
+    }
+
+    if (!text.startsWith(prefix)) {
+        text = `${prefix}\n${text}`;
+    }
+
+    const ender = deriveEnderTag(prefix);
+    let closed = text;
+    if (ender) {
+        const enderIndex = text.indexOf(ender, prefix.length);
+        closed = enderIndex === -1
+            ? `${text.trimEnd()}\n${ender}`
+            : text.slice(0, enderIndex + ender.length);
+    }
+
+    const body = ender
+        ? closed.slice(prefix.length, closed.length - ender.length)
+        : closed.slice(prefix.length);
+    return body.trim() ? closed : null;
 }
