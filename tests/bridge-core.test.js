@@ -155,6 +155,15 @@ test('pass instructions reference the prefix, the closing tag, and the answer st
     assert.match(forcedNudge, /Begin the reply with: npc_list/);
 });
 
+test('finalizeThinkBlock rejects provider garbage instead of wrapping it', () => {
+    assert.equal(finalizeThinkBlock('{}', '<think>'), null);
+    assert.equal(finalizeThinkBlock('```json\n{}\n```', '<think>'), null);
+    assert.equal(finalizeThinkBlock('{"prefix":"<think>', '<think>'), null);
+    assert.equal(finalizeThinkBlock('{ "content": "x" }', '<think>'), null);
+    // Template steps written with braces are legitimate content, not garbage.
+    assert.equal(finalizeThinkBlock('{1} ok</think>', '<think>'), '<think>\n{1} ok</think>');
+});
+
 test('finalizeThinkBlock turns pass-one output into a closed thinking block', () => {
     assert.equal(
         finalizeThinkBlock('{"prefix":"<think>","content":"{1} ok\\n{2} ok"}', '<think>'),

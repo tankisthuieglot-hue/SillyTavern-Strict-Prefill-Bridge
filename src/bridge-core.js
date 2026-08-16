@@ -432,6 +432,11 @@ export function finalizeThinkBlock(rawText, expectedPrefix) {
         if (fenced) {
             candidate = fenced[1].trim();
         }
+        // An unparsed structured-output wrapper (e.g. "{}" or a malformed
+        // {"prefix": ... fragment) is provider garbage, not thinking content.
+        if (/^\{\s*\}/.test(candidate) || /^\{\s*"/.test(candidate)) {
+            return null;
+        }
         const prefixIndex = candidate.indexOf(prefix);
         candidate = prefixIndex > 0 ? candidate.slice(prefixIndex) : candidate;
         text = candidate;

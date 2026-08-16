@@ -171,33 +171,41 @@ async function runTwoPassCoT(payload, settings) {
         content: buildCotInstruction(prefix),
     });
 
-    let data;
+    const schema = buildStructuredSchema({
+        source: payload.chat_completion_source,
+        model: payload.model,
+        prefix,
+        minimumContentCharacters: settings?.minimumContentCharacters,
+    });
+    const baseOptions = {
+        prompt,
+        systemPrompt: COT_ENGINE_SYSTEM_PROMPT,
+        responseLength: normalizeCotResponseTokens(settings.cotResponseTokens),
+    };
+
+    const finalize = data => {
+        const rawText = typeof data === 'string'
+            ? data
+            : data?.choices?.[0]?.message?.content
+                ?? data?.choices?.[0]?.text
+                ?? data?.text
+                ?? '';
+        const thinkBlock = finalizeThinkBlock(visibleTextOf(rawText), prefix);
+        return thinkBlock ? thinkBlock.replaceAll(HTML_QUOTE_TOKEN, '"') : '';
+    };
+
     twoPassGeneratorActive = true;
     try {
-        data = await SillyTavern.getContext().generateRawData({
-            prompt,
-            systemPrompt: COT_ENGINE_SYSTEM_PROMPT,
-            responseLength: normalizeCotResponseTokens(settings.cotResponseTokens),
-            jsonSchema: buildStructuredSchema({
-                source: payload.chat_completion_source,
-                model: payload.model,
-                prefix,
-                minimumContentCharacters: settings?.minimumContentCharacters,
-            }),
-        });
+        // Some providers (e.g. NanoGPT with thinking models) return an empty
+        // structured object; retry the same prompt once without the schema.
+        let thinkBlock = await SillyTavern.getContext().generateRawData({ ...baseOptions, jsonSchema: schema }).then(finalize);
+        if (!thinkBlock) {
+            thinkBlock = await SillyTavern.getContext().generateRawData(baseOptions).then(finalize);
+        }
+        return thinkBlock;
     } finally {
         twoPassGeneratorActive = false;
     }
-
-    const rawText = typeof data === 'string'
-        ? data
-        : data?.choices?.[0]?.message?.content
-            ?? data?.choices?.[0]?.text
-            ?? data?.text
-            ?? '';
-
-    const thinkBlock = finalizeThinkBlock(visibleTextOf(rawText), prefix);
-    return thinkBlock ? thinkBlock.replaceAll(HTML_QUOTE_TOKEN, '"') : '';
 }
 
 function visibleTextOf(value) {

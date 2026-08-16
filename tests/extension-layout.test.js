@@ -125,6 +125,7 @@ test('browser entrypoint injects Gemini schema through the existing SillyTavern 
     };
     let savedSettings = 0;
     const generateRawCalls = [];
+    const scriptedResponses = [];
     const renderedMessages = [];
     const context = {
         eventSource,
@@ -160,7 +161,9 @@ test('browser entrypoint injects Gemini schema through the existing SillyTavern 
             };
             await handlers.get(eventTypes.CHAT_COMPLETION_SETTINGS_READY)[0](quietPayload);
             assert.equal(quietPayload.include_reasoning, true);
-            return '{"prefix":"<think>","content":"{1} surveyed the silent room\\n{2} counted the exits"}';
+            return scriptedResponses.length > 0
+                ? scriptedResponses.shift()
+                : '{"prefix":"<think>","content":"{1} surveyed the silent room\\n{2} counted the exits"}';
         },
     };
 
@@ -274,6 +277,29 @@ test('browser entrypoint injects Gemini schema through the existing SillyTavern 
             '<think>{1} surveyed the silent room\n{2} counted the exits\n</think>\nShe turned to the door.',
         );
         assert.equal(renderedMessages.at(-1).text, context.chat[0].mes);
+
+        // Provider returns an empty structured object on the first attempt:
+        // the extension retries once without the schema and still assembles the block.
+        scriptedResponses.push('{}');
+        const retryMessages = [{ role: 'user', content: 'retry the scene' }];
+        const retryPayload = {
+            type: 'normal',
+            chat_completion_source: 'vertexai',
+            model: 'gemini-3.6-flash',
+            messages: retryMessages,
+        };
+
+        await handlers.get(eventTypes.CHAT_COMPLETION_SETTINGS_READY)[0](retryPayload);
+
+        assert.equal(generateRawCalls.length, 3);
+        assert.notEqual(generateRawCalls[1].jsonSchema, undefined);
+        assert.equal(generateRawCalls[2].jsonSchema, undefined);
+        assert.equal(retryPayload.messages.length, 3);
+        assert.equal(
+            retryPayload.messages[1].content,
+            '<think>{1} surveyed the silent room\n{2} counted the exits\n</think>',
+        );
+        assert.equal(retryPayload.json_schema, undefined);
     } finally {
         for (const [name, original] of originalGlobals) {
             if (original.exists) {

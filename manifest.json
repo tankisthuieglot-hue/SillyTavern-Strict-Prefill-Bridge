@@ -6,6 +6,6 @@
     "js": "index.js",
     "css": "style.css",
     "author": "ilyar",
-    "version": "0.8.1",
+    "version": "0.8.2",
     "minimum_client_version": "1.18.0"
 }
